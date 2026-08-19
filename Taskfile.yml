@@ -1,19 +1,25 @@
 # =============================================================================
-# Taskfile — QA smoke verification
+# Taskfile — QA smoke verification (Hurl)
 # =============================================================================
 #
 # Audience: QA engineers.
 #
-# These tasks run the smoke/acceptance scenarios in orders_manager_smoke_test.go
-# against a LIVE HTTP server (httptest binds a real localhost port). They answer:
+# These tasks run the smoke scenarios in smoke-tests/*.hurl with the `hurl`
+# tool against a REAL server process. By default the Taskfile boots the local
+# products API fixture (cmd/products-api) on a live localhost port, runs Hurl
+# against it, then tears it down. Set BASE_URL to point at a deployed instance
+# instead (e.g. https://products.com) to smoke-test that environment.
 #
-#     "If we deploy this, does it actually talk to a running products API?"
+# They answer:
+#
+#     "If we deploy this, does the products API actually serve the contract
+#      the OrdersManager client depends on?"
 #
 # Prerequisites:
-#   - Go toolchain on PATH (`go`)
+#   - Go toolchain on PATH (`go`) — only to build the local fixture server
+#   - `hurl` on PATH (https://hurl.dev)
 #   - `task` runner installed (https://taskfile.dev)
-#   - the environment must allow binding a localhost port (these tests do not
-#     use mocks — they open a real socket)
+#   - the environment must allow binding a localhost port
 #
 # Quick start:
 #     task            # list available tasks
@@ -24,12 +30,16 @@
 version: "3"
 
 vars:
-  # Filter that selects only the QA smoke scenarios. Every scenario in
-  # orders_manager_smoke_test.go is named TestSmoke_*, so this matches exactly
-  # the QA-owned suite and excludes the developer unit tests.
-  SMOKE_FILTER: TestSmoke
-  # Directory containing the Go module (single-module repo).
-  PKG: "."
+  # Directory containing the Hurl smoke scenarios.
+  SMOKE_DIR: smoke-tests
+  # Port the local products API fixture binds when BASE_URL is not set.
+  PORT: "18080"
+  # API key shared between the local fixture (-api-key) and Hurl (--variable).
+  API_KEY: "smoke-test-key"
+  # Local products API fixture binary + runtime files (built once, reused).
+  SERVER_BIN: /tmp/products-api-smoke
+  SERVER_LOG: /tmp/products-api-smoke.log
+  SERVER_PID: /tmp/products-api-smoke.pid
 
 tasks:
 
@@ -39,14 +49,19 @@ tasks:
     cmds:
       - task --list
 
-  # ------------------------------------------------------------------ verify
+  # ------------------------------------------------------------------ smoke
   smoke:
-    desc: Run ALL smoke scenarios against a live API (verbose, fails fast).
+    desc: Run ALL smoke scenarios with Hurl against a real server.
     summary: |
-      Boots a real HTTP server and exercises every TestSmoke_* scenario
-      end-to-end. Use this as the gate before sign-off.
+      Boots the products API fixture (or uses BASE_URL), then runs every
+      smoke-tests/*.hurl scenario with `hurl --test`. Use this as the gate
+      before sign-off.
     cmds:
-      - go test -run {{.SMOKE_FILTER}} -v {{.PKG}}
+      - cmd: |
+          set -euo pipefail
+          task smoke:server:start
+          trap 'task smoke:server:stop >/dev/null 2>&1 || true' EXIT
+          task smoke:run
 
   smoke:list:
     desc: Run each smoke scenario individually and print a PASS/FAIL summary.
@@ -54,45 +69,99 @@ tasks:
       Runs the scenarios one by one so a QA engineer can see exactly which
       scenario failed, then prints a consolidated PASS/FAIL summary.
     cmds:
-      - task: smoke:scenario
-        vars: { NAME: TestSmoke_ListAllDescriptions, ID: "S1 list-all-descriptions" }
-      - task: smoke:scenario
-        vars: { NAME: TestSmoke_ListOnlyAvailableDescriptions, ID: "S2 list-available-only" }
-      - task: smoke:scenario
-        vars: { NAME: TestSmoke_CheckSingleProductAvailability, ID: "S3 single-product-availability" }
-      - task: smoke:scenario
-        vars: { NAME: TestSmoke_SearchProductsByKeyword, ID: "S4 search-by-keyword" }
-      - task: smoke:scenario
-        vars: { NAME: TestSmoke_ValidateCartAgainstStock, ID: "S5 validate-cart" }
-      - task: smoke:scenario
-        vars: { NAME: TestSmoke_ApiOutageSurfacesAsError, ID: "S6 api-outage-errors" }
-      - task: smoke:scenario
-        vars: { NAME: TestSmoke_BaseUrlTrailingSlashReachesProductsEndpoint, ID: "S7 trailing-slash-routing" }
+      - cmd: |
+          set -euo pipefail
+          task smoke:server:start
+          trap 'task smoke:server:stop >/dev/null 2>&1 || true' EXIT
+          base_url="${BASE_URL:-http://127.0.0.1:{{.PORT}}}"
+          pass=0
+          fail=0
+          for f in {{.SMOKE_DIR}}/*.hurl; do
+            name=$(basename "$f" .hurl)
+            echo ""
+            echo "────────────────────────────────────────────────────────────"
+            echo "▶ Scenario $name"
+            echo "────────────────────────────────────────────────────────────"
+            if hurl --test --max-time 10 --variable base_url="$base_url" --variable api_key="{{.API_KEY}}" "$f"; then
+              echo "✅ PASS  $name"
+              pass=$((pass + 1))
+            else
+              echo "❌ FAIL  $name"
+              fail=$((fail + 1))
+            fi
+          done
+          echo ""
+          echo "Summary: $pass passed, $fail failed"
+          [ "$fail" -eq 0 ]
 
-  smoke:scenario:
-    internal: true
-    requires:
-      vars: [NAME, ID]
+  # ------------------------------------------------------------- server mgmt
+  smoke:server:start:
+    desc: Boot the products API fixture in the background (skipped when BASE_URL is set).
     cmds:
       - cmd: |
-          set -e
-          echo ""
-          echo "────────────────────────────────────────────────────────────"
-          echo "▶ Scenario {{.ID}} → {{.NAME}}"
-          echo "────────────────────────────────────────────────────────────"
-          go test -run '^{{.NAME}}$' -v {{.PKG}} && \
-            echo "✅ PASS  {{.ID}} ({{.NAME}})" || \
-            { echo "❌ FAIL  {{.ID}} ({{.NAME}})"; exit 1; }
+          set -euo pipefail
+          if [ -n "${BASE_URL:-}" ]; then
+            echo "BASE_URL set ($BASE_URL) — using external server, not booting the local fixture."
+            exit 0
+          fi
+          if [ -f {{.SERVER_PID}} ] && kill -0 "$(cat {{.SERVER_PID}})" 2>/dev/null; then
+            echo "products API fixture already running (pid $(cat {{.SERVER_PID}}))."
+            exit 0
+          fi
+          go build -o {{.SERVER_BIN}} ./cmd/products-api
+          # Reap any stale fixture still bound to our port: the readiness check
+          # below would otherwise be satisfied by a leftover process and the
+          # recorded PID would not match the server actually answering.
+          pkill -f "{{.SERVER_BIN}} -addr 127.0.0.1:{{.PORT}}" 2>/dev/null || true
+          {{.SERVER_BIN}} -addr 127.0.0.1:{{.PORT}} -api-key {{.API_KEY}} > {{.SERVER_LOG}} 2>&1 &
+          echo $! > {{.SERVER_PID}}
+          for i in $(seq 1 50); do
+            if curl -fsS -H "x-api-key: {{.API_KEY}}" "http://127.0.0.1:{{.PORT}}/products" >/dev/null 2>&1; then
+              echo "products API fixture ready on http://127.0.0.1:{{.PORT}}"
+              exit 0
+            fi
+            sleep 0.1
+          done
+          echo "products API fixture failed to become ready; log:" >&2
+          cat {{.SERVER_LOG}} >&2 || true
+          exit 1
+
+  smoke:server:stop:
+    desc: Stop the products API fixture (no-op when BASE_URL is set).
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          if [ -n "${BASE_URL:-}" ]; then
+            exit 0
+          fi
+          if [ -f {{.SERVER_PID}} ]; then
+            pid=$(cat {{.SERVER_PID}})
+            kill "$pid" 2>/dev/null || true
+            rm -f {{.SERVER_PID}}
+          fi
+          # Fallback: ensure nothing is left bound to our port even if the PID
+          # was never recorded (e.g. a stale process from an interrupted run).
+          pkill -f "{{.SERVER_BIN}} -addr 127.0.0.1:{{.PORT}}" 2>/dev/null || true
+          echo "products API fixture stopped."
+
+  # ------------------------------------------------------------- smoke:run
+  smoke:run:
+    desc: Run every Hurl scenario against the server.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          base_url="${BASE_URL:-http://127.0.0.1:{{.PORT}}}"
+          hurl --test --max-time 10 --variable base_url="$base_url" --variable api_key="{{.API_KEY}}" {{.SMOKE_DIR}}/*.hurl
 
   # ------------------------------------------------------------------ support
   smoke:vet:
-    desc: Static-check the smoke test file (compile + vet) without running it.
+    desc: Static-check the Go code (server fixture + client) without running it.
     cmds:
-      - go vet {{.PKG}}
+      - go vet ./...
 
   smoke:count:
     desc: Show how many smoke scenarios are defined.
     cmds:
       - |
-        n=$(grep -cE '^func TestSmoke_' orders_manager_smoke_test.go)
+        n=$(ls {{.SMOKE_DIR}}/*.hurl 2>/dev/null | wc -l | tr -d ' ')
         echo "Smoke scenarios defined: $n"
