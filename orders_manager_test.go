@@ -574,3 +574,42 @@ func TestValidateCart_negativeAndValidMixed(t *testing.T) {
 		t.Errorf("expected 2 issues (invalid qty + out of stock), got %d", len(invalidErr.Details))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Quantity type + CartItem.Validate tests (A04 prevention)
+// ---------------------------------------------------------------------------
+
+func TestNewQuantity_rejectsNonPositive(t *testing.T) {
+	for _, n := range []int{-5, -1, 0} {
+		q, err := NewQuantity(n)
+		if err == nil {
+			t.Errorf("NewQuantity(%d) = %v, want error", n, q)
+		}
+	}
+}
+
+func TestNewQuantity_acceptsPositive(t *testing.T) {
+	q, err := NewQuantity(7)
+	if err != nil {
+		t.Fatalf("NewQuantity(7): unexpected error: %v", err)
+	}
+	if q.Int() != 7 {
+		t.Errorf("NewQuantity(7).Int() = %d, want 7", q.Int())
+	}
+}
+
+func TestCartItem_Validate_rejectsNonPositive(t *testing.T) {
+	for _, qty := range []Quantity{-3, 0} {
+		item := CartItem{Ref: 1, Quantity: qty}
+		if err := item.Validate(); err == nil {
+			t.Errorf("CartItem{Quantity: %d}.Validate() = nil, want error", qty)
+		}
+	}
+}
+
+func TestCartItem_Validate_acceptsPositive(t *testing.T) {
+	item := CartItem{Ref: 1, Quantity: 2}
+	if err := item.Validate(); err != nil {
+		t.Errorf("CartItem{Quantity: 2}.Validate() = %v, want nil", err)
+	}
+}

@@ -208,11 +208,12 @@ func (m *OrdersManager) ValidateCart(ctx context.Context, cart []CartItem) (Cart
 	errs := &InvalidCartError{Code: http.StatusUnprocessableEntity}
 	for _, item := range cart {
 		// Reject zero or negative quantities first — before checking stock
-		// — so a negative quantity can never reduce the total (A04).
-		if item.Quantity <= 0 {
+		// — so a negative quantity can never reduce the total (A04). The
+		// invariant lives on CartItem itself (CartItem.Validate).
+		if err := item.Validate(); err != nil {
 			errs.Details = append(errs.Details, CartItemIssue{
 				Ref:       item.Ref,
-				Requested: item.Quantity,
+				Requested: int(item.Quantity),
 				Available: 0,
 				Reason:    CartItemInvalidQuantity,
 			})
@@ -223,16 +224,16 @@ func (m *OrdersManager) ValidateCart(ctx context.Context, cart []CartItem) (Cart
 		if !ok {
 			errs.Details = append(errs.Details, CartItemIssue{
 				Ref:       item.Ref,
-				Requested: item.Quantity,
+				Requested: int(item.Quantity),
 				Available: 0,
 				Reason:    CartItemNotAvailable,
 			})
 			continue
 		}
-		if product.Stock < item.Quantity {
+		if product.Stock < item.Quantity.Int() {
 			errs.Details = append(errs.Details, CartItemIssue{
 				Ref:       item.Ref,
-				Requested: item.Quantity,
+				Requested: int(item.Quantity),
 				Available: product.Stock,
 				Reason:    CartItemInsufficientStock,
 			})
