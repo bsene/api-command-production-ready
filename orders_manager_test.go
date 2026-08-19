@@ -1,10 +1,13 @@
 package apicommand
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -573,6 +576,128 @@ func TestValidateCart_negativeAndValidMixed(t *testing.T) {
 	if len(invalidErr.Details) != 2 {
 		t.Errorf("expected 2 issues (invalid qty + out of stock), got %d", len(invalidErr.Details))
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Structured logging tests (A09) — capture slog output for critical paths
+// ---------------------------------------------------------------------------
+
+// captureLogger builds a slog.Logger whose text output is written to a buffer
+// the test can inspect. It returns the buffer so callers can assert on it.
+func captureLogger() (*slog.Logger, *bytes.Buffer) {
+	var buf bytes.Buffer
+	h := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	return slog.New(h), &buf
+}
+
+func TestFetchProducts_logsUpstreamError(t *testing.T) {
+	transport := &fakeTransport{status: http.StatusInternalServerError, body: "boom"}
+	client := &http.Client{Transport: transport}
+	logger, buf := captureLogger()
+	m, err := NewOrdersManager("https://products.com", WithHTTPClient(client), WithLogger(logger))
+	if err != nil {
+		t.Fatalf("NewOrdersManager: %v", err)
+	}
+
+	_, err = m.AllDescriptions(context.Background())
+	if err == nil {
+		t.Fatal("expected error for 500 status, got nil")
+	}
+
+	logged := buf.String()
+	// A non-OK upstream status is logged at Warn with url, status, elapsed.
+	if !strings.Contains(logged, "level=WARN") {
+		t.Errorf("expected WARN level for non-OK status, got:\n%s", logged)
+	}
+	if !strings.Contains(logged, "products API returned non-OK status") {
+		t.Errorf("expected non-OK status message, got:\n%s", logged)
+	}
+	if !strings.Contains(logged, "status=500") {
+		t.Errorf("expected status=500 in log, got:\n%s", logged)
+	}
+}
+
+func TestFetchProducts_logsTransportError(t *testing.T) {
+	// A transport that always errors simulates an upstream network failure.
+	transport := &errorTransport{}
+	client := &http.Client{Transport: transport}
+	logger, buf := captureLogger()
+	m, err := NewOrdersManager("https://products.com", WithHTTPClient(client), WithLogger(logger))
+	if err != nil {
+		t.Fatalf("NewOrdersManager: %v", err)
+	}
+
+	_, err = m.AllDescriptions(context.Background())
+	if err == nil {
+		t.Fatal("expected transport error, got nil")
+	}
+
+	logged := buf.String()
+	// A transport error is logged at Error with url, elapsed, error.
+	if !strings.Contains(logged, "level=ERROR") {
+		t.Errorf("expected ERROR level for transport failure, got:\n%s", logged)
+	}
+	if !strings.Contains(logged, "requesting products failed") {
+		t.Errorf("expected transport-error message, got:\n%s", logged)
+	}
+}
+
+func TestValidateCart_logsValidationFailure(t *testing.T) {
+	manager, _ := managerWithTransport(t, http.StatusOK, productsJSON(t, sampleProducts()))
+	logger, buf := captureLogger()
+	manager.logger = logger
+
+	cart := []CartItem{{Ref: 1, Quantity: -2}, {Ref: 999, Quantity: 1}}
+	_, err := manager.ValidateCart(context.Background(), cart)
+	if err == nil {
+		t.Fatal("expected cart validation error, got nil")
+	}
+
+	logged := buf.String()
+	// A cart validation failure is logged at Warn with item_count, invalid_count, details.
+	if !strings.Contains(logged, "level=WARN") {
+		t.Errorf("expected WARN level for cart validation failure, got:\n%s", logged)
+	}
+	if !strings.Contains(logged, "cart validation failed") {
+		t.Errorf("expected cart-validation-failed message, got:\n%s", logged)
+	}
+	if !strings.Contains(logged, "invalid_count=2") {
+		t.Errorf("expected invalid_count=2 in log, got:\n%s", logged)
+	}
+}
+
+func TestFetchProducts_logsSuccessfulRequest(t *testing.T) {
+	transport := &fakeTransport{status: http.StatusOK, body: productsJSON(t, sampleProducts())}
+	client := &http.Client{Transport: transport}
+	logger, buf := captureLogger()
+	m, err := NewOrdersManager("https://products.com", WithHTTPClient(client), WithLogger(logger))
+	if err != nil {
+		t.Fatalf("NewOrdersManager: %v", err)
+	}
+
+	if _, err := m.AllDescriptions(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	logged := buf.String()
+	// A successful request is logged at Info with url, status, product_count, elapsed.
+	if !strings.Contains(logged, "level=INFO") {
+		t.Errorf("expected INFO level for successful request, got:\n%s", logged)
+	}
+	if !strings.Contains(logged, "products request completed") {
+		t.Errorf("expected completion message, got:\n%s", logged)
+	}
+	if !strings.Contains(logged, "status=200") {
+		t.Errorf("expected status=200 in log, got:\n%s", logged)
+	}
+}
+
+// errorTransport is a mock HTTP transport that always returns an error,
+// simulating an upstream network failure.
+type errorTransport struct{}
+
+func (t *errorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("upstream unreachable: simulated network failure")
 }
 
 // ---------------------------------------------------------------------------
