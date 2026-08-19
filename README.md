@@ -77,6 +77,55 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
 | `WithHTTPClient(client)` | Overrides the HTTP client (test-only; bypasses SSRF protection). |
 | `WithLogger(logger)` | Overrides the default `slog.Logger` for structured logging (A09). |
 
+## Logging contract
+
+`slog` is the mandatory structured-logging interface for all code in this
+repository. `fmt.Println` / `log.Printf` MUST NOT be used for
+security-relevant events.
+
+### Levels
+
+| Level | When to use |
+| --- | --- |
+| `Info` | Successful request/call completion (access log). |
+| `Warn` | Recoverable failure: non-OK upstream status, cart validation failure, unauthenticated request rejected. |
+| `Error` | Unexpected failure: request build error, transport error, JSON decode error, recovered panic. |
+
+### Server (`cmd/products-api`) — `requestLogger` middleware
+
+Every request is logged once by the `requestLogger` middleware with:
+
+| Field | Example | Notes |
+| --- | --- | --- |
+| `method` | `GET` | HTTP method |
+| `path` | `/products` | URL path |
+| `status` | `200` | Response status code |
+| `remote` | `127.0.0.1:54321` | `RemoteAddr` |
+| `elapsed_ms` | `3` | Wall-clock latency in ms |
+
+Recovered panics are logged at `Error` with `method`, `path`, `remote`, and
+`panic` by the `recoveryMiddleware`.
+
+### Client (`OrdersManager`) — `fetchProducts`
+
+| Event | Level | Fields |
+| --- | --- | --- |
+| Request completed | `Info` | `url`, `status`, `product_count`, `elapsed` |
+| Non-OK upstream status | `Warn` | `url`, `status`, `elapsed` |
+| Request build error | `Error` | `base_url`, `error` |
+| Transport error | `Error` | `url`, `elapsed`, `error` |
+| JSON decode error | `Error` | `url`, `status`, `error` |
+| Cart validation failure | `Warn` | `item_count`, `invalid_count`, `details` |
+
+### Conventions
+
+- All field names are `snake_case` string keys (slog convention).
+- `elapsed` / `elapsed_ms` are wall-clock durations from request start.
+- Never log secrets (API keys, credentials). The `x-api-key` value is never
+  emitted; only its presence/absence is implied by the auth outcome.
+- New HTTP handlers or outbound HTTP calls MUST follow this contract — see
+  [docs/checklists/code-review.md](docs/checklists/code-review.md#4-structured-logging-slog).
+
 ## Smoke tests
 
 The smoke suite is black-box HTTP: it runs `hurl --test` against a real server

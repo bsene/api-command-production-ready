@@ -1,0 +1,60 @@
+# Code-Review Checklist
+
+> Dantotsu eradication — cross-cutting prevention strategies for **A04
+> (Insecure Design)**, **A05 (Security Misconfiguration)**, and **A09
+> (Security Logging & Monitoring Failures)**.
+>
+> Run through this checklist for every PR that touches
+> `orders_manager.go`, `cmd/products-api/main.go`, or adds a new HTTP
+> client/server.
+
+## 1. Numeric fields that represent a count or quantity
+
+- [ ] Any `int` field representing a count, quantity, or amount MUST be
+      validated for `> 0` at the point of use — or, preferably, modeled as the
+      `Quantity` type so the invalid state is unrepresentable.
+- [ ] Externally-sourced quantities MUST go through `NewQuantity(n)`, which
+      rejects `n <= 0`. Literal construction (`Quantity(n)`) is only
+      acceptable for trusted compile-time constants.
+- [ ] No business-logic computation (`Price * Quantity`, stock comparison,
+      total accumulation) may run before the quantity sign has been checked.
+      `CartItem.Validate()` is the canonical guard; `ValidateCart` calls it
+      before any stock or price work.
+
+## 2. `http.Server{}` instances
+
+- [ ] Every new `http.Server{}` satisfies all items in
+      [server-hardening.md](server-hardening.md) — in particular
+      `MaxHeaderBytes` is non-zero and the handler chain includes a
+      panic-recovery middleware.
+- [ ] No handler is registered on a bare `ServeMux` without going through the
+      middleware `chain` (recovery + logging + auth).
+
+## 3. Outbound HTTP clients (`OrdersManager` and any future client)
+
+- [ ] The SSRF-safe transport (`newSSRFSafeTransport`) is the default. Any
+      code that bypasses it with `WithHTTPClient` MUST be confined to
+      `*_test.go` files (a CI grep guard enforces this; locally, reviewers
+      reject `WithHTTPClient` outside tests).
+- [ ] Any new outbound HTTP client in this codebase reuses
+      `newSSRFSafeTransport` or `checkSSRFIP` — never dials with a plain
+      `http.DefaultTransport`.
+- [ ] Authentication credentials are sent on every outbound request that
+      targets an authenticated upstream (`x-api-key` via `WithAPIKey`).
+
+## 4. Structured logging (`slog`)
+
+- [ ] Every new HTTP handler logs at **Info** (success) and **Error/Warn**
+      (failure) with structured fields via `slog` — never `fmt.Println` /
+      `log.Printf` for security-relevant events.
+- [ ] Every new outbound HTTP call logs the URL, status, elapsed time, and
+      error (if any). `OrdersManager.fetchProducts` is the reference.
+- [ ] Cart/validation failures are logged at **Warn** with per-item details.
+- [ ] See the [logging contract](../../README.md#logging-contract) in the
+      README for the full field conventions.
+
+## 5. Reports
+
+- [ ] If a new OWASP-relevant defect is found and fixed, add a Dantotsu report
+      under `docs/dantotsu/` using `_template.md` and link it from the README
+      defect table.
