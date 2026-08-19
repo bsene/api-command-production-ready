@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "skills": {
+    "clean-code": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "clean-code/SKILL.md",
+      "computedHash": "396f29dea09712804a19acfb3cf28dedce298bf0ca008e0e3d0f2e7eda74fc75"
+    },
+    "dantotsu": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "dantotsu/SKILL.md",
+      "computedHash": "e584842e0d7977b3c6c2cfe1feef1c2b92c2f0f4f9a9b32b463003ac8ac253d5"
+    },
+    "explain-code": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "explain-code/SKILL.md",
+      "computedHash": "52a17a8bad457bddde2782975d69e7915263cb69b649d80e5e79728cc3420838"
+    },
+    "git-hero": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "git-hero/SKILL.md",
+      "computedHash": "1ff3ebd2cda1a28e670be7a35e3bd0d9dd768074fe3a545495d1c25a639253ca"
+    },
+    "golang": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "golang/SKILL.md",
+      "computedHash": "d619c48b9211774ff75de7591dcbe727f0445388750b594f60307d7756e09477"
+    },
+    "grilling": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grilling/SKILL.md",
+      "computedHash": "a16b2f661db6caf310d7e02dd0d069e597cb888873e210e66f641eae715c5f23"
+    },
+    "handoff": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/handoff/SKILL.md",
+      "computedHash": "20e5f4afdef502637510bc5c64d27645d3c85c88df9cb006824bbb0980166319"
+    },
+    "implement": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/implement/SKILL.md",
+      "computedHash": "2139cfedf24791adbc839aaab6019cff158af1e28bfead020ec6e0ce01b3e74d"
+    },
+    "markdown": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "markdown/SKILL.md",
+      "computedHash": "2bb45c53afcbdf8dd75b7963c531d2c7687435b8f8d64f219afe3730c8839791"
+    },
+    "prototype": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/prototype/SKILL.md",
+      "computedHash": "d3fc74689bd993e39c44bfae510d014eecffbeec2922764b065377fd1327c0f6"
+    },
+    "refactoring": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "refactoring/SKILL.md",
+      "computedHash": "30080571e2e082bd9f17e40e0bcd5afe451a9787667a1c8c99ad83159683d40a"
+    },
+    "rest-api-design": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "rest-api-design/SKILL.md",
+      "computedHash": "d1180592d58f947c230167517322cd22900372470513d091ed261939740f49a4"
+    },
+    "review": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "review/SKILL.md",
+      "computedHash": "e95eddcdb9824182bf8fa4401143091d22b7c2bb341c078efaf27978a112c344"
+    },
+    "show-me-the-code": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "show-me-the-code/SKILL.md",
+      "computedHash": "d36a55282bac157e039718b83cf0903d5d2a390282c70a6175115777aececdd8"
+    },
+    "simple": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "simple/SKILL.md",
+      "computedHash": "8d939a00ac59250801e9942cbcc88afcfdf805cde20db214fcd82e04ebc6327e"
+    },
+    "smoke-tests": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "smoke-tests/SKILL.md",
+      "computedHash": "140e82550735682eeb942c6397320c068ebcec63757cfd037a7745841a44eb5e"
+    },
+    "tcrdd": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "tcrdd/SKILL.md",
+      "computedHash": "c11c3fbdb0d35c2052b76724832db3f03a6e4f450ea7145f2f67dc84abdcf001"
+    },
+    "testing": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "testing/SKILL.md",
+      "computedHash": "077194e1ad2659e3d155ffb5bbaa59df3204f5f37452b2d130c7f9f7d4a0ebf5"
+    },
+    "writing-a-good-agents-md": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "writing-a-good-agents-md/SKILL.md",
+      "computedHash": "43f7bde5bd78ee984414eb1d10c89e28a9fa3c803a6f0bd01af094957e67a3b0"
+    }
+  }
+}

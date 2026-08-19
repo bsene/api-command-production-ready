@@ -1,0 +1,98 @@
+# =============================================================================
+# Taskfile — QA smoke verification
+# =============================================================================
+#
+# Audience: QA engineers.
+#
+# These tasks run the smoke/acceptance scenarios in orders_manager_smoke_test.go
+# against a LIVE HTTP server (httptest binds a real localhost port). They answer:
+#
+#     "If we deploy this, does it actually talk to a running products API?"
+#
+# Prerequisites:
+#   - Go toolchain on PATH (`go`)
+#   - `task` runner installed (https://taskfile.dev)
+#   - the environment must allow binding a localhost port (these tests do not
+#     use mocks — they open a real socket)
+#
+# Quick start:
+#     task            # list available tasks
+#     task smoke      # run every smoke scenario, verbose
+#     task smoke:list # run each scenario individually with a PASS/FAIL summary
+#
+# =============================================================================
+version: "3"
+
+vars:
+  # Filter that selects only the QA smoke scenarios. Every scenario in
+  # orders_manager_smoke_test.go is named TestSmoke_*, so this matches exactly
+  # the QA-owned suite and excludes the developer unit tests.
+  SMOKE_FILTER: TestSmoke
+  # Directory containing the Go module (single-module repo).
+  PKG: "."
+
+tasks:
+
+  # ------------------------------------------------------------------ default
+  default:
+    desc: List the available QA smoke tasks.
+    cmds:
+      - task --list
+
+  # ------------------------------------------------------------------ verify
+  smoke:
+    desc: Run ALL smoke scenarios against a live API (verbose, fails fast).
+    summary: |
+      Boots a real HTTP server and exercises every TestSmoke_* scenario
+      end-to-end. Use this as the gate before sign-off.
+    cmds:
+      - go test -run {{.SMOKE_FILTER}} -v {{.PKG}}
+
+  smoke:list:
+    desc: Run each smoke scenario individually and print a PASS/FAIL summary.
+    summary: |
+      Runs the scenarios one by one so a QA engineer can see exactly which
+      scenario failed, then prints a consolidated PASS/FAIL summary.
+    cmds:
+      - task: smoke:scenario
+        vars: { NAME: TestSmoke_ListAllDescriptions, ID: "S1 list-all-descriptions" }
+      - task: smoke:scenario
+        vars: { NAME: TestSmoke_ListOnlyAvailableDescriptions, ID: "S2 list-available-only" }
+      - task: smoke:scenario
+        vars: { NAME: TestSmoke_CheckSingleProductAvailability, ID: "S3 single-product-availability" }
+      - task: smoke:scenario
+        vars: { NAME: TestSmoke_SearchProductsByKeyword, ID: "S4 search-by-keyword" }
+      - task: smoke:scenario
+        vars: { NAME: TestSmoke_ValidateCartAgainstStock, ID: "S5 validate-cart" }
+      - task: smoke:scenario
+        vars: { NAME: TestSmoke_ApiOutageSurfacesAsError, ID: "S6 api-outage-errors" }
+      - task: smoke:scenario
+        vars: { NAME: TestSmoke_BaseUrlTrailingSlashReachesProductsEndpoint, ID: "S7 trailing-slash-routing" }
+
+  smoke:scenario:
+    internal: true
+    requires:
+      vars: [NAME, ID]
+    cmds:
+      - cmd: |
+          set -e
+          echo ""
+          echo "────────────────────────────────────────────────────────────"
+          echo "▶ Scenario {{.ID}} → {{.NAME}}"
+          echo "────────────────────────────────────────────────────────────"
+          go test -run '^{{.NAME}}$' -v {{.PKG}} && \
+            echo "✅ PASS  {{.ID}} ({{.NAME}})" || \
+            { echo "❌ FAIL  {{.ID}} ({{.NAME}})"; exit 1; }
+
+  # ------------------------------------------------------------------ support
+  smoke:vet:
+    desc: Static-check the smoke test file (compile + vet) without running it.
+    cmds:
+      - go vet {{.PKG}}
+
+  smoke:count:
+    desc: Show how many smoke scenarios are defined.
+    cmds:
+      - |
+        n=$(grep -cE '^func TestSmoke_' orders_manager_smoke_test.go)
+        echo "Smoke scenarios defined: $n"
