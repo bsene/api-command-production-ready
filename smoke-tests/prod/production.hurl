@@ -55,7 +55,10 @@ jsonpath "$.message" contains "available=false"
 POST {{base_url}}
 Content-Type: application/json
 x-api-key: {{api_key}}
+
+```
 not-json
+```
 HTTP 400
 [Asserts]
 jsonpath "$.error" == "invalid request body"
