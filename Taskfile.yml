@@ -6,9 +6,10 @@
 #
 # These tasks run the smoke scenarios in smoke-tests/*.hurl with the `hurl`
 # tool against a REAL server process. By default the Taskfile boots the local
-# products API fixture (cmd/products-api) on a live localhost port, runs Hurl
-# against it, then tears it down. Set BASE_URL to point at a deployed instance
-# instead (e.g. https://products.com) to smoke-test that environment.
+# products API fixture (the dune-built products-api executable) on a live
+# localhost port, runs Hurl against it, then tears it down. Set BASE_URL to
+# point at a deployed instance instead (e.g. https://products.com) to
+# smoke-test that environment.
 #
 # They answer:
 #
@@ -16,7 +17,7 @@
 #      the OrdersManager client depends on?"
 #
 # Prerequisites:
-#   - Go toolchain on PATH (`go`) — only to build the local fixture server
+#   - OCaml toolchain on PATH (`dune`) — to build the local fixture server
 #   - `hurl` on PATH (https://hurl.dev)
 #   - `task` runner installed (https://taskfile.dev)
 #   - the environment must allow binding a localhost port
@@ -114,12 +115,13 @@ tasks:
             echo "products API fixture already running (pid $(cat {{.SERVER_PID}}))."
             exit 0
           fi
-          go build -o {{.SERVER_BIN}} ./cmd/products-api
+          dune build server/main.exe
+          install -m 755 _build/default/server/main.exe {{.SERVER_BIN}}
           # Reap any stale fixture still bound to our port: the readiness check
           # below would otherwise be satisfied by a leftover process and the
           # recorded PID would not match the server actually answering.
-          pkill -f "{{.SERVER_BIN}} -addr 127.0.0.1:{{.PORT}}" 2>/dev/null || true
-          {{.SERVER_BIN}} -addr 127.0.0.1:{{.PORT}} -api-key {{.API_KEY}} -catalog {{.CATALOG}} > {{.SERVER_LOG}} 2>&1 &
+          pkill -f "{{.SERVER_BIN}} --addr 127.0.0.1:{{.PORT}}" 2>/dev/null || true
+          {{.SERVER_BIN}} --addr 127.0.0.1:{{.PORT}} --api-key {{.API_KEY}} --catalog {{.CATALOG}} > {{.SERVER_LOG}} 2>&1 &
           echo $! > {{.SERVER_PID}}
           for i in $(seq 1 50); do
             if curl -fsS -H "x-api-key: {{.API_KEY}}" "http://127.0.0.1:{{.PORT}}/products" >/dev/null 2>&1; then
@@ -147,7 +149,7 @@ tasks:
           fi
           # Fallback: ensure nothing is left bound to our port even if the PID
           # was never recorded (e.g. a stale process from an interrupted run).
-          pkill -f "{{.SERVER_BIN}} -addr 127.0.0.1:{{.PORT}}" 2>/dev/null || true
+          pkill -f "{{.SERVER_BIN}} --addr 127.0.0.1:{{.PORT}}" 2>/dev/null || true
           echo "products API fixture stopped."
 
   # ------------------------------------------------------------- smoke:run
@@ -161,9 +163,9 @@ tasks:
 
   # ------------------------------------------------------------------ support
   smoke:vet:
-    desc: Static-check the Go code (server fixture + client) without running it.
+    desc: Run the Alcotest suites (server fixture + client) without booting a server.
     cmds:
-      - go vet ./...
+      - dune runtest
 
   smoke:count:
     desc: Show how many smoke scenarios are defined.
