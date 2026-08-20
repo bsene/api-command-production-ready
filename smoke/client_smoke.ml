@@ -41,6 +41,16 @@ let check_int_list label expected got =
     incr failures
   end
 
+let contains ~sub s =
+  let n = String.length sub in
+  let m = String.length s in
+  let rec go i =
+    if i + n > m then false
+    else if String.sub s i n = sub then true
+    else go (i + 1)
+  in
+  n = 0 || go 0
+
 let parse_args () =
   let base_url = ref "http://127.0.0.1:18080" in
   let api_key = ref "smoke-test-key" in
@@ -90,6 +100,11 @@ let () =
       | Ok true -> check "is_available 3 = false" false
       | Error e -> check ("is_available 3: " ^ e) false);
 
+     (match run (Orders_manager.is_available m 15) with
+      | Ok false -> check "is_available 15 = false" true
+      | Ok true -> check "is_available 15 = false" false
+      | Error e -> check ("is_available 15: " ^ e) false);
+
      (match run (Orders_manager.search m "tennis") with
       | Error e -> check ("search tennis: " ^ e) false
       | Ok rs ->
@@ -119,8 +134,8 @@ let () =
       | Error e -> check ("A01 wrong-key create: " ^ e) false
       | Ok bad ->
         (match run (Orders_manager.all_descriptions bad) with
-         | Error _ -> check "A01 wrong key rejected" true
-         | Ok _ -> check "A01 wrong key rejected" false));
+         | Error e -> check "A01 wrong key rejected (401)" (contains ~sub:"status 401" e)
+         | Ok _ -> check "A01 wrong key rejected (401)" false));
 
      (match run (Orders_manager.all_descriptions m) with
       | Ok _ -> check "A01 right key accepted" true
