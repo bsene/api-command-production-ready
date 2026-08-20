@@ -12,7 +12,7 @@ let catalog_path () =
   | _ -> "/opt/catalog/products.json"
 
 let () =
-  let logger = Log.create () in
+  let logger = Log.create ~out:stdout () in
   let catalog =
     match Catalog.load_catalog ~path:(catalog_path ()) with
     | Ok c -> c

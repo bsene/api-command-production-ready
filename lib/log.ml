@@ -1,16 +1,23 @@
-(* Structured logger emitting Go slog text-handler format into a buffer.
+(* Structured logger emitting Go slog text-handler format.
    Format: level=<LVL> msg="<msg>" k1=v1 k2=v2 ... — matching the substring
    assertions in orders_manager_test.go (level=INFO/WARN/ERROR, status=N,
-   invalid_count=N, the message text). *)
+   invalid_count=N, the message text).
+
+   By default a logger writes only into an in-memory buffer, so white-box
+   tests can assert on [contents]. Production entry points (the local server
+   and the Lambda bootstrap) pass [~out:stdout] so the same lines reach the
+   process stdout — CloudWatch for Lambda, the console for the server —
+   preserving Go slog's stdout-sink behaviour. The buffer is always kept, so
+   [contents] keeps working regardless of whether an [out] channel is set. *)
 
 type value =
   | S of string
   | I of int
   | F of float
 
-type t = { buf : Buffer.t }
+type t = { buf : Buffer.t; out : out_channel option }
 
-let create () = { buf = Buffer.create 512 }
+let create ?out () = { buf = Buffer.create 512; out }
 let contents t = Buffer.contents t.buf
 
 let value_str = function S s -> s | I n -> string_of_int n | F f -> string_of_float f
@@ -18,11 +25,16 @@ let value_str = function S s -> s | I n -> string_of_int n | F f -> string_of_fl
 let level_str = function `Info -> "INFO" | `Warn -> "WARN" | `Error -> "ERROR"
 
 let log t lvl msg kvs =
-  let b = t.buf in
-  Buffer.add_string b (Printf.sprintf "level=%s msg=\"%s\"" (level_str lvl) msg);
+  let line = Buffer.create 256 in
+  Buffer.add_string line (Printf.sprintf "level=%s msg=\"%s\"" (level_str lvl) msg);
   List.iter (fun (k, v) ->
-    Buffer.add_string b (Printf.sprintf " %s=%s" k (value_str v))) kvs;
-  Buffer.add_char b '\n'
+    Buffer.add_string line (Printf.sprintf " %s=%s" k (value_str v))) kvs;
+  Buffer.add_char line '\n';
+  let s = Buffer.contents line in
+  Buffer.add_string t.buf s;
+  match t.out with
+  | Some ch -> output_string ch s; flush ch
+  | None -> ()
 
 let info t msg kvs = log t `Info msg kvs
 let warn t msg kvs = log t `Warn msg kvs

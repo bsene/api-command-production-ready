@@ -11,8 +11,11 @@ type value =
 (** A captured logger. *)
 type t
 
-(** [create ()] makes a logger writing into a fresh buffer. *)
-val create : unit -> t
+(** [create ?out ()] makes a logger writing into a fresh buffer. When [out] is
+    given (production: [stdout]) each line is also written there and flushed,
+    so CloudWatch/console see the same text as Go's slog handler. [contents]
+    works in both modes. *)
+val create : ?out:out_channel -> unit -> t
 
 (** [contents t] returns the buffered log text. *)
 val contents : t -> string

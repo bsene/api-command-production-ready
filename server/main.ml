@@ -18,7 +18,7 @@ let () =
       | Ok c -> c
       | Error e -> Fmt.epr "products API: load catalog: %s@." e; exit 1
     in
-    let logger = Log.create () in
+    let logger = Log.create ~out:stdout () in
     (* Split Go's ["host:port"] addr into Dream's interface + port. *)
     let host, port =
       match String.rindex_opt cfg.addr ':' with

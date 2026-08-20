@@ -76,9 +76,24 @@ let serve_one ~api ~api_key ~catalog ~logger =
       Log.error logger "invocation failed" [ "request_id", S inv.request_id; "error", S msg ];
       post api ("/runtime/invocation/" ^ inv.request_id ^ "/error") (error_to_json msg))
 
+(* [run] is the forever loop. Unlike [serve_one], the whole iteration —
+   including [next_invocation]'s fetch — is guarded: a transient Runtime API
+   error (connection refused, reset) is logged and retried after a short
+   backoff rather than letting the exception escape [Lwt_main.run] and killing
+   the process. [serve_one] stays unguarded so a single iteration can be
+   tested against a stub Runtime API. *)
 let run ~api ~api_key ~catalog ~logger =
   let rec loop () =
-    let%lwt () = serve_one ~api ~api_key ~catalog ~logger in
+    let%lwt () =
+      Lwt.catch
+        (fun () -> serve_one ~api ~api_key ~catalog ~logger)
+        (fun exn ->
+          let msg = Printexc.to_string exn in
+          Log.error logger "runtime loop error — retrying in 1s"
+            [ "error", S msg ];
+          let%lwt () = Lwt_unix.sleep 1.0 in
+          Lwt.return ())
+    in
     loop ()
   in
   loop ()
