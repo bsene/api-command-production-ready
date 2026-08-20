@@ -1,0 +1,5 @@
+node_modules/
+bin/
+# Pulumi local-backend state (do not commit stack state/secrets)
+.pulumi/
+dist/
