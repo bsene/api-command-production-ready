@@ -23,6 +23,21 @@ const commonTags = {
   ManagedBy: "pulumi",
 };
 
+// --- API key (application-level auth, A01) ------------------------------------
+
+// The Lambda handler authenticates every request by comparing the x-api-key
+// header against this value (constant-time comparison in Go). The key is
+// stored as a Pulumi secret so it is encrypted at rest in the Pulumi state and
+// never appears in plaintext in the stack config or source.
+//
+// Set it at deploy time:
+//
+//   pulumi config set --secret api-command-infra:lambdaApiKey "your-secret-key"
+//
+// If left empty the handler refuses to serve (returns 500) until the key is
+// configured — fail-closed, not fail-open.
+const lambdaApiKey = new pulumi.Config().requireSecret("lambdaApiKey");
+
 // --- IAM role for the Lambda -------------------------------------------------
 
 // Trust policy: allow Lambda's service to assume the role.
@@ -73,6 +88,14 @@ const fn = new aws.lambda.Function(
     code: new pulumi.asset.FileArchive(lambdaZip),
     timeout: 15,
     memorySize: 128,
+    // Inject the API key as an environment variable. Pulumi marks this as a
+    // secret because lambdaApiKey came from requireSecret, so the value is
+    // encrypted in the Pulumi state and masked in console output.
+    environment: {
+      variables: {
+        LAMBDA_API_KEY: lambdaApiKey,
+      },
+    },
     tags: commonTags,
   },
   {
@@ -86,8 +109,11 @@ const fn = new aws.lambda.Function(
 
 // A Lambda Function URL is a dedicated HTTPS endpoint AWS provisions for the
 // function, so it is reachable with a plain HTTP call (no API Gateway).
-// authorizationType "NONE" keeps it curl-testable for this dev kata; flip to
-// "AWS_IAM" (SigV4-signed requests) if the handler ever carries real logic.
+//
+// authorizationType "NONE" means AWS does not enforce IAM SigV4 signing at the
+// edge — but the handler authenticates every request via the x-api-key header
+// (see infra/lambda/main.go). This keeps the endpoint curl-testable while
+// still rejecting unauthenticated callers with 401.
 const fnUrl = new aws.lambda.FunctionUrl(
   "api-command-fn-url",
   {
@@ -121,7 +147,8 @@ const fnUrlPermission = new aws.lambda.Permission(
 // AWS now requires both lambda:InvokeFunctionUrl AND lambda:InvokeFunction
 // in the resource policy for unauthenticated Function URL invocations.
 // Pulumi v6 does not expose `invokedViaFunctionUrl`, so we grant the plain
-// InvokeFunction action to '*' (dev-only; use AWS_IAM auth in production).
+// InvokeFunction action to '*' — the handler-level x-api-key check is what
+// actually gates access (A01).
 const fnInvokePermission = new aws.lambda.Permission(
   "api-command-fn-invoke-perm",
   {

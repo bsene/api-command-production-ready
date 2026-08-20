@@ -1,4 +1,6 @@
 config:
   aws:region: eu-north-1
   aws:profile: default
+  api-command-infra:lambdaApiKey:
+    secure: v1:tsm3950CgPq+wjl/:gSbCEtPHqDaX43eEXARZ3voD3BNUlhXvmHScaw==
 encryptionsalt: v1:7EWIO0qUO1o=:v1:3QhSghze53vYqd+o:eXQevVrxk3iJ7PcZEa+jmFQzodoc4A==
