@@ -9,3 +9,9 @@
  (libraries server_lib apicommand alcotest)
  (package api-command)
  (deps ../../infra/catalog/products.json))
+
+(test
+ (name server_test)
+ (libraries server_lib apicommand alcotest dream lwt)
+ (package api-command)
+ (deps ../../infra/catalog/products.json))
