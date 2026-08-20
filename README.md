@@ -57,8 +57,8 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
 - **A02 – Cryptographic Failures**
   - `Orders_manager.create` rejects plain `http://` base URLs by default; use
     `~allow_insecure_http:true` only for the local dev fixture.
-  - The Cohttp backend pins TLS verification (custom RootCAs / MinVersion)
-    on the client.
+  - The Cohttp backend verifies TLS against the default CA trust store
+    (`ca-certs`); it does not pin custom RootCAs or a minimum TLS version.
   - The fixture can serve HTTPS via `-tls-cert` / `-tls-key`, and sets
     `Strict-Transport-Security` over TLS plus baseline defensive headers.
 

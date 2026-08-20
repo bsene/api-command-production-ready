@@ -8,5 +8,13 @@
     allows loopback/private addresses only when [allow_local_dev] is true (the
     local-dev fixture mode). The returned first-class module satisfies
     [Orders_manager.HTTP_BACKEND]; pass it to [Orders_manager.create] via
-    [~http_client]. *)
+    [~http_client].
+
+    [allow_local_dev] is the same "local dev / insecure transport" opt-in as
+    [Orders_manager.create]'s [~allow_insecure_http]: when injecting this
+    backend into a manager, the two flags MUST be kept consistent. Passing
+    [allow_local_dev:true] while creating the manager with
+    [~allow_insecure_http:false] would let a hostname URL resolve to a
+    loopback/private IP and be dialed, silently bypassing the construction-time
+    SSRF check. *)
 val make : allow_local_dev:bool -> unit -> (module Orders_manager.HTTP_BACKEND)

@@ -40,7 +40,14 @@ type orders_manager
     [http_client] defaults to a stub that errors if called — every caller that
     actually fetches must inject a real backend (production: Cohttp_backend;
     tests: Fake_transport), mirroring Go where [WithHTTPClient] is the tested
-    path. *)
+    path.
+
+    [allow_insecure_http] is the same "local dev / insecure transport" opt-in
+    as [Cohttp_backend.make]'s [~allow_local_dev]: when injecting a
+    [Cohttp_backend], its [allow_local_dev] MUST match [allow_insecure_http].
+    A mismatch (e.g. [allow_local_dev:true] with [allow_insecure_http:false])
+    would let a hostname URL resolve to a loopback/private IP and be dialed,
+    silently bypassing the construction-time SSRF check. *)
 val create :
   base_url:string ->
   ?http_client:(module HTTP_BACKEND) ->
