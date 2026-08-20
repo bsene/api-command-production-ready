@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "typescript": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "typescript/SKILL.md",
+      "computedHash": "7086f2354e94812ed7fa33bb8954c2d9d4f00228118b82a3ebc8acc488b08275"
+    },
+    "typescript-magician": {
+      "source": "mcollina/skills",
+      "sourceType": "github",
+      "skillPath": "skills/typescript-magician/SKILL.md",
+      "computedHash": "99e61d29c107b3c52adbb70c6ee8cfbfb7830ea0649dba4ec89557fdf5c46b54"
+    }
+  }
+}
