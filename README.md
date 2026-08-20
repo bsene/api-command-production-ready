@@ -79,6 +79,9 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
     `Cache-Control`, `Content-Security-Policy`, HSTS over TLS) are set on
     every response.
   - Report: [docs/dantotsu/A05-maxheaderbytes-panic-recovery.md](docs/dantotsu/A05-maxheaderbytes-panic-recovery.md)
+  - The deployed Lambda Function URL (infra) caps reserved concurrency and
+    enforces a ≥32-byte API key to resist brute-force and billing-DoS. See
+    [docs/dantotsu/A05-rate-limiting.md](docs/dantotsu/A05-rate-limiting.md).
 
 - **A09 – Security Logging and Monitoring Failures**
   - The server logs every request (method, path, status, remote, elapsed) via
@@ -176,4 +179,5 @@ eradication strategy for each defect.
 | [A04-A10-ssrf-protection.md](docs/dantotsu/A04-A10-ssrf-protection.md) | A04/A10 | Attacker-controllable baseURL targeting internal endpoints |
 | [A04-negative-quantity-validation.md](docs/dantotsu/A04-negative-quantity-validation.md) | A04 | Negative cart quantity reducing the total |
 | [A05-maxheaderbytes-panic-recovery.md](docs/dantotsu/A05-maxheaderbytes-panic-recovery.md) | A05 | Missing MaxHeaderBytes and panic recovery |
+| [A05-rate-limiting.md](docs/dantotsu/A05-rate-limiting.md) | A05 | No rate limiting / concurrency cap on the public Function URL |
 | [A09-structured-logging.md](docs/dantotsu/A09-structured-logging.md) | A09 | No structured logging of requests, errors, or validation failures |

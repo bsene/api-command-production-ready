@@ -30,13 +30,27 @@ const commonTags = {
 // stored as a Pulumi secret so it is encrypted at rest in the Pulumi state and
 // never appears in plaintext in the stack config or source.
 //
-// Set it at deploy time:
+// Set it at deploy time (must be at least 32 bytes — generate a strong key):
 //
-//   pulumi config set --secret api-command-infra:lambdaApiKey "your-secret-key"
+//   pulumi config set --secret api-command-infra:lambdaApiKey "$(openssl rand -hex 32)"
 //
-// If left empty the handler refuses to serve (returns 500) until the key is
-// configured — fail-closed, not fail-open.
-const lambdaApiKey = new pulumi.Config().requireSecret("lambdaApiKey");
+// The key is validated here at deploy time: a short/weak key fails
+// `pulumi preview`/`up` before anything is provisioned. If left empty the
+// handler refuses to serve (returns 500) — fail-closed, not fail-open.
+const lambdaApiKey = new pulumi.Config().requireSecret("lambdaApiKey").apply((key) => {
+  if (key.length < 32) {
+    throw new Error(
+      `lambdaApiKey must be at least 32 bytes (got ${key.length}); generate one with: openssl rand -hex 32`,
+    );
+  }
+  return key;
+});
+
+// Reserved concurrency caps how many instances of this function can run at
+// once, so a flood of requests cannot exhaust the account's concurrency pool
+// and starve other functions (billing/cost DoS + concurrency exhaustion).
+// Override with: pulumi config set reservedConcurrency N
+const reservedConcurrency = new pulumi.Config().getNumber("reservedConcurrency") ?? 5;
 
 // --- IAM role for the Lambda -------------------------------------------------
 
@@ -115,6 +129,9 @@ const fn = new aws.lambda.Function(
     layers: [catalogLayer.arn],
     timeout: 15,
     memorySize: 128,
+    // Cap concurrent executions so a flood of requests cannot exhaust the
+    // account's concurrency pool (billing/cost DoS + concurrency exhaustion).
+    reservedConcurrentExecutions: reservedConcurrency,
     // Inject the API key as an environment variable. Pulumi marks this as a
     // secret because lambdaApiKey came from requireSecret, so the value is
     // encrypted in the Pulumi state and masked in console output.

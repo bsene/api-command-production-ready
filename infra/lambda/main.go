@@ -83,12 +83,15 @@ const catalogPath = "/opt/catalog/products.json"
 func handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
 	// --- Authentication (A01) ----------------------------------------------
 
-	// Reject if no API key was configured at deploy time. This is a
-	// deployment misconfiguration, not a caller error — log it and return 500
-	// so the operator notices immediately rather than silently allowing all
-	// traffic through.
-	if apiKey == "" {
-		logger.Error("LAMBDA_API_KEY not set — refusing to serve without authentication")
+	// Reject if no API key was configured at deploy time, or if the key is too
+	// short to resist brute-force. This is a deployment misconfiguration, not a
+	// caller error — log it and return 500 so the operator notices immediately
+	// rather than silently allowing all traffic through. The Pulumi program
+	// enforces the same >=32-byte rule at deploy time; this is defense-in-depth.
+	if len(apiKey) < 32 {
+		logger.Error("LAMBDA_API_KEY missing or too short — refusing to serve with a weak key",
+			"key_bytes", len(apiKey),
+		)
 		return jsonError(500, "internal server error"), nil
 	}
 

@@ -105,14 +105,27 @@ without a matching key are rejected with `401` before any business logic runs.
 
 ### Setting the API key
 
-The key is stored as a Pulumi secret (encrypted in state, never in source):
+The key is stored as a Pulumi secret (encrypted in state, never in source) and
+**must be at least 32 bytes** (256-bit entropy). Generate a strong key with
+`openssl` and set it:
 
 ```sh
-pulumi config set --secret lambdaApiKey "your-secret-key"
+pulumi config set --secret lambdaApiKey "$(openssl rand -hex 32)"
 ```
 
-If the key is not configured, the handler returns `500` and refuses to serve —
-**fail-closed, not fail-open**.
+The Pulumi program validates the key length at deploy time — a short/weak key
+fails `pulumi preview`/`up` with a clear error. If the key is not configured,
+the handler returns `500` and refuses to serve — **fail-closed, not fail-open**.
+
+### Reserved concurrency
+
+The function reserves **5 concurrent executions** by default, so a flood of
+requests cannot exhaust the account's concurrency pool and starve other
+functions. Override it before deploying:
+
+```sh
+pulumi config set reservedConcurrency 10
+```
 
 A Function URL is only actually public if the function's resource-based policy
 grants `lambda:InvokeFunctionUrl` to `*` (with the `FunctionUrlAuthType == NONE`
