@@ -31,7 +31,6 @@ let api_key_auth key next request =
    handler produces it, so they apply to every status (401, 404, 200). HSTS only
    over TLS, matching Go's [r.TLS != nil] guard. *)
 let security_headers next request =
-
   next request >>= fun resp ->
   Dream.set_header resp "X-Content-Type-Options" "nosniff";
   Dream.set_header resp "X-Frame-Options" "DENY";
@@ -47,7 +46,6 @@ let security_headers next request =
    rejections only, NOT 4xx/5xx responses — unlike [Dream.catch], which would
    intercept the 401 from [api_key_auth]). *)
 let recover logger next request =
-
   Lwt.catch
     (fun () -> next request)
     (fun exn ->
@@ -64,7 +62,6 @@ let recover logger next request =
    from the response after the inner handler runs, mirroring Go's
    [statusRecorder]. *)
 let request_logger logger next request =
-
   let start = Unix.gettimeofday () in
   next request >>= fun resp ->
   let elapsed_ms =
