@@ -102,6 +102,16 @@ is public and curl-testable for this dev kata — anyone with the URL can invoke
 it. Switch to `AWS_IAM` in `src/index.ts` if the handler ever carries real
 logic.
 
+A Function URL is only actually public if the function's resource-based policy
+grants `lambda:InvokeFunctionUrl` to `*` (with the `FunctionUrlAuthType == NONE`
+condition) — `src/index.ts` provisions that via `aws.lambda.Permission`, plus a
+second permission for `lambda:InvokeFunction` (required since Oct 2025 for
+unauthenticated Function URL invocations).
+
+Function URLs deliver requests as **API Gateway v2 (HTTP API) payload-format-2.0
+events**, so the handler reads the HTTP body from `event.Body` (see
+`lambda/main.go`), not from the top-level event.
+
 Invoke it directly:
 
 ```sh
