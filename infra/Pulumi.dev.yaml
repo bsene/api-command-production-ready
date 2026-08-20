@@ -2,5 +2,5 @@ config:
   aws:region: eu-north-1
   aws:profile: default
   api-command-infra:lambdaApiKey:
-    secure: v1:tsm3950CgPq+wjl/:gSbCEtPHqDaX43eEXARZ3voD3BNUlhXvmHScaw==
+    secure: v1:cWZJ4YgTAxGO5Iho:+cZ3eyqJr1qAsbo2E3CFZX+urgeekVmfcNsodomAKtNeHFdyo0EPUF8NefCVqsV7n9gHoS05xnQaLysmYDT2vpUxvgQDD7I4+sTIj/1Tbhg=
 encryptionsalt: v1:7EWIO0qUO1o=:v1:3QhSghze53vYqd+o:eXQevVrxk3iJ7PcZEa+jmFQzodoc4A==
