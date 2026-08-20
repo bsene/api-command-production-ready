@@ -179,6 +179,7 @@ eradication strategy for each defect.
 | [A01-client-api-key-auth.md](docs/dantotsu/A01-client-api-key-auth.md) | A01 | Client did not authenticate to the server |
 | [A04-A10-ssrf-protection.md](docs/dantotsu/A04-A10-ssrf-protection.md) | A04/A10 | Attacker-controllable baseURL targeting internal endpoints |
 | [A04-negative-quantity-validation.md](docs/dantotsu/A04-negative-quantity-validation.md) | A04 | Negative cart quantity reducing the total |
+| [A04-lambda-input-validation.md](docs/dantotsu/A04-lambda-input-validation.md) | A04 | Unbounded/unvalidated Lambda body fields (description, price, ref) |
 | [A05-maxheaderbytes-panic-recovery.md](docs/dantotsu/A05-maxheaderbytes-panic-recovery.md) | A05 | Missing MaxHeaderBytes and panic recovery |
 | [A05-rate-limiting.md](docs/dantotsu/A05-rate-limiting.md) | A05 | No rate limiting / concurrency cap on the public Function URL |
 | [A09-structured-logging.md](docs/dantotsu/A09-structured-logging.md) | A09 | No structured logging of requests, errors, or validation failures |
