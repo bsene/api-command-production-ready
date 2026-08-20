@@ -4,10 +4,11 @@
   "description": "Pulumi AWS project for api-command (local backend, custom Go Lambda)",
   "scripts": {
     "build:lambda": "mkdir -p dist && (cd lambda && GOOS=linux GOARCH=arm64 go build -trimpath -ldflags=\"-s -w\" -o ../dist/bootstrap .) && (cd dist && rm -f lambda.zip && zip -q lambda.zip bootstrap) && echo \"built dist/lambda.zip\"",
+    "build:layer": "rm -f dist/catalog-layer.zip && mkdir -p dist && zip -q dist/catalog-layer.zip catalog/products.json && echo \"built dist/catalog-layer.zip\"",
     "clean:lambda": "rm -rf dist",
-    "build": "npm run build:lambda",
-    "preview": "npm run build:lambda && pulumi preview",
-    "up": "npm run build:lambda && pulumi up",
+    "build": "npm run build:lambda && npm run build:layer",
+    "preview": "npm run build && pulumi preview",
+    "up": "npm run build && pulumi up",
     "destroy": "pulumi destroy"
   },
   "dependencies": {

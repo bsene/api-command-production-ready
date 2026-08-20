@@ -1,0 +1,6 @@
+[
+  {"ref": 1, "description": "vélo électrique", "stock": 10, "prix": 1400},
+  {"ref": 2, "description": "balle de tennis", "stock": 1000, "prix": 1.5},
+  {"ref": 3, "description": "raquette de tennis", "stock": 0, "prix": 80},
+  {"ref": 4, "description": "ballon de football", "stock": 5, "prix": 25}
+]

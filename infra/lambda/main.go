@@ -46,12 +46,35 @@ type Response struct {
 	Message string `json:"message"`
 }
 
+// catalogProduct mirrors the product-catalog reference data shipped via the
+// Lambda layer (infra/catalog/products.json). JSON keys match the products API
+// wire format — note the French "prix" field for the price, consistent with the
+// fixture (cmd/products-api) and the root apicommand.Product type. This is a
+// separate Go module, so the struct is duplicated here rather than imported.
+type catalogProduct struct {
+	Ref         int     `json:"ref"`
+	Description string  `json:"description"`
+	Stock       int     `json:"stock"`
+	Price       float64 `json:"prix"`
+}
+
 // logger is initialized in main() so tests can inspect log output via the
 // default handler if needed.
 var logger *slog.Logger
 
 // apiKey is the expected API key, read once from LAMBDA_API_KEY at startup.
 var apiKey string
+
+// catalog is the product-catalog reference loaded at startup from the Lambda
+// layer (/opt/catalog/products.json by default). It is groundwork for a future
+// lookup-by-ref feature — the handler does not currently use it, so a missing
+// or unreadable layer is non-fatal: loadCatalog logs a warning and leaves the
+// slice empty rather than crashing every invocation.
+var catalog []catalogProduct
+
+// catalogPath is the location the layer mounts the reference catalog. It can be
+// overridden via the CATALOG_PATH env var for local testing.
+const catalogPath = "/opt/catalog/products.json"
 
 // handle processes a single Function URL invocation.
 //
@@ -126,5 +149,29 @@ func jsonError(status int, msg string) events.APIGatewayV2HTTPResponse {
 func main() {
 	logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	apiKey = os.Getenv("LAMBDA_API_KEY")
+	loadCatalog()
 	lambda.Start(handle)
+}
+
+// loadCatalog reads the product-catalog reference shipped via the Lambda layer
+// into the package-level catalog slice. It is non-fatal: a missing or
+// unreadable file (e.g. layer not attached, wrong path) logs a warning and
+// leaves catalog empty so the availability-echo endpoint keeps serving.
+// CATALOG_PATH overrides the default /opt mount for local testing.
+func loadCatalog() {
+	p := os.Getenv("CATALOG_PATH")
+	if p == "" {
+		p = catalogPath
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		logger.Warn("catalog not loaded (layer missing or wrong path)",
+			"path", p, "error", err)
+		return
+	}
+	if err := json.Unmarshal(b, &catalog); err != nil {
+		logger.Error("catalog parse failed", "path", p, "error", err)
+		return
+	}
+	logger.Info("catalog loaded", "path", p, "count", len(catalog))
 }

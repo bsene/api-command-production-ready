@@ -76,6 +76,30 @@ const lambdaExecutionPolicy = new aws.iam.RolePolicyAttachment(
 // into dist/lambda.zip (GOOS=linux GOARCH=arm64). On the provided.al2023 custom
 // runtime AWS executes the "bootstrap" file from the deployment package.
 const lambdaZip = path.join(__dirname, "..", "dist", "lambda.zip");
+const catalogLayerZip = path.join(__dirname, "..", "dist", "catalog-layer.zip");
+
+// --- Product catalog Lambda layer -------------------------------------------
+
+// A Lambda LayerVersion ships the product-catalog reference data
+// (infra/catalog/products.json, built by `npm run build:layer` into
+// dist/catalog-layer.zip) to every execution environment of the function. AWS
+// backs layer content with S3 internally and mounts it read-only at /opt, so:
+//   - no aws.s3.Bucket resource is needed, and
+//   - no S3 read permission is needed on the Lambda role (the layer is mounted
+//     by the Lambda runtime at environment setup, not fetched per invocation).
+// The zip entry catalog/products.json lands at /opt/catalog/products.json,
+// which the handler loads at startup (see infra/lambda/main.go).
+const catalogLayer = new aws.lambda.LayerVersion(
+  "catalog-layer",
+  {
+    layerName: `${namePrefix}-catalog`,
+    code: new pulumi.asset.FileArchive(catalogLayerZip),
+    compatibleArchitectures: ["arm64"],
+    compatibleRuntimes: ["provided.al2023"],
+    description: "Product catalog reference data for api-command",
+  },
+  { provider },
+);
 
 const fn = new aws.lambda.Function(
   "api-command-lambda",
@@ -86,6 +110,9 @@ const fn = new aws.lambda.Function(
     handler: "bootstrap", // ignored by the custom runtime, but conventional
     architectures: ["arm64"],
     code: new pulumi.asset.FileArchive(lambdaZip),
+    // Mount the product-catalog reference data layer at /opt. Each execution
+    // environment gets the layer read-only; the handler loads it at startup.
+    layers: [catalogLayer.arn],
     timeout: 15,
     memorySize: 128,
     // Inject the API key as an environment variable. Pulumi marks this as a
@@ -101,7 +128,8 @@ const fn = new aws.lambda.Function(
   {
     provider,
     // The role policy attachment must be in place before the function runs.
-    dependsOn: [lambdaExecutionPolicy],
+    // The catalog layer must exist before the function references its ARN.
+    dependsOn: [lambdaExecutionPolicy, catalogLayer],
   },
 );
 
