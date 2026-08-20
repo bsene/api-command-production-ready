@@ -5,6 +5,29 @@ Kata: [Préparation de commandes](https://github.com/xnopre/xnopre-katas/blob/ma
 `OrdersManager` consumes the fictional products API (`https://products.com`) to
 prepare sports-product orders.
 
+## Production smoke tests
+
+After `pulumi up` completes, run the Hurl smoke scenarios in `smoke-tests/prod/`
+against the deployed Lambda Function URL:
+
+```sh
+export LAMBDA_API_KEY="your-pulumi-secret"
+task smoke:prod
+```
+
+To see per-scenario results:
+
+```sh
+task smoke:prod:list
+```
+
+The URL is baked into `Taskfile.yml` as `PROD_URL`; the API key must be supplied
+via the `LAMBDA_API_KEY` environment variable (the same Pulumi secret set with
+`pulumi config set --secret lambdaApiKey`). These scenarios validate the
+production authentication gate (A01) and the availability response contract
+without relying on the local fixture.
+
+
 ## Layout
 
 - `orders_manager.go` — the `OrdersManager` client (list, availability, search, cart validation)
