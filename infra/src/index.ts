@@ -82,9 +82,27 @@ const fn = new aws.lambda.Function(
   },
 );
 
+// --- Function URL (public HTTPS endpoint) ------------------------------------
+
+// A Lambda Function URL is a dedicated HTTPS endpoint AWS provisions for the
+// function, so it is reachable with a plain HTTP call (no API Gateway).
+// authorizationType "NONE" keeps it curl-testable for this dev kata; flip to
+// "AWS_IAM" (SigV4-signed requests) if the handler ever carries real logic.
+const fnUrl = new aws.lambda.FunctionUrl(
+  "api-command-fn-url",
+  {
+    functionName: fn.name,
+    authorizationType: "NONE",
+    invokeMode: "BUFFERED",
+  },
+  { provider, dependsOn: [fn] },
+);
+
 // --- Outputs -----------------------------------------------------------------
 
 export const lambdaName = fn.name;
+export const functionUrl = fnUrl.functionUrl; // https://<id>.lambda-url.<region>.on.aws/
+export const functionUrlArn = fnUrl.functionArn;
 export const lambdaArn = fn.arn;
 export const lambdaRoleArn = lambdaRole.arn;
 export const runtime = pulumi.output("provided.al2023");

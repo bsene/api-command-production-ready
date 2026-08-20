@@ -84,13 +84,32 @@ pulumi destroy         # tear everything down
 
 ## Outputs
 
-| output          | example value                    |
-|-----------------|----------------------------------|
-| `lambdaName`    | `api-command-infra-dev-fn`       |
-| `lambdaArn`     | (resolved after `pulumi up`)     |
-| `lambdaRoleArn` | (resolved after `pulumi up`)     |
-| `runtime`       | `provided.al2023`                |
-| `region`        | `eu-north-1` (parsed from `lambdaArn`) |
+| output            | example value                                              |
+|-------------------|------------------------------------------------------------|
+| `lambdaName`      | `api-command-infra-dev-fn`                                 |
+| `lambdaArn`       | (resolved after `pulumi up`)                               |
+| `lambdaRoleArn`   | (resolved after `pulumi up`)                               |
+| `runtime`         | `provided.al2023`                                          |
+| `region`          | `eu-north-1` (parsed from `lambdaArn`)                     |
+| `functionUrl`     | `https://<id>.lambda-url.eu-north-1.on.aws/`              |
+| `functionUrlArn`  | (resolved after `pulumi up`)                               |
+
+## Function URL
+
+The Lambda has a **Function URL**: a dedicated HTTPS endpoint AWS provisions
+for the function (no API Gateway). It uses `authorizationType: "NONE"`, so it
+is public and curl-testable for this dev kata — anyone with the URL can invoke
+it. Switch to `AWS_IAM` in `src/index.ts` if the handler ever carries real
+logic.
+
+Invoke it directly:
+
+```sh
+curl -X POST "$(pulumi stack output functionUrl)" \
+  -H 'Content-Type: application/json' \
+  -d '{"ref":1,"description":"ball","stock":3,"price":9.9}'
+# -> {"ok":true,"ref":1,"message":"ref=1 description=\"ball\" stock=3 price=9.90 -> available=true"}
+```
 
 ## Notes
 
