@@ -21,6 +21,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -114,9 +115,34 @@ func handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 		return jsonError(400, "missing request body"), nil
 	}
 
+	// A proxy or client may base64-encode the body (event.IsBase64Encoded).
+	// Decode before unmarshalling so encoded bodies parse instead of 400-ing.
+	body := event.Body
+	if event.IsBase64Encoded {
+		decoded, err := base64.StdEncoding.DecodeString(body)
+		if err != nil {
+			return jsonError(400, "request body is not valid base64"), nil
+		}
+		body = string(decoded)
+	}
+
 	var req Request
-	if err := json.Unmarshal([]byte(event.Body), &req); err != nil {
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
 		return jsonError(400, "invalid request body"), nil
+	}
+
+	// Validate bounded, non-negative fields before processing. Description is
+	// echoed into the response, so cap it to bound memory amplification; price
+	// and ref are domain quantities that must not be negative.
+	const maxDescriptionBytes = 1024
+	if len(req.Description) > maxDescriptionBytes {
+		return jsonError(400, "description exceeds 1KB"), nil
+	}
+	if req.Price < 0 {
+		return jsonError(400, "price must be >= 0"), nil
+	}
+	if req.Ref < 0 {
+		return jsonError(400, "ref must be >= 0"), nil
 	}
 
 	available := req.Stock > 0
