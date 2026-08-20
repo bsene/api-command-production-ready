@@ -26,7 +26,7 @@ const commonTags = {
 // --- API key (application-level auth, A01) ------------------------------------
 
 // The Lambda handler authenticates every request by comparing the x-api-key
-// header against this value (constant-time comparison in Go). The key is
+// header against this value (constant-time comparison in OCaml). The key is
 // stored as a Pulumi secret so it is encrypted at rest in the Pulumi state and
 // never appears in plaintext in the stack config or source.
 //
@@ -84,11 +84,12 @@ const lambdaExecutionPolicy = new aws.iam.RolePolicyAttachment(
   { provider },
 );
 
-// --- Custom Go Lambda (provided.al2023 / bootstrap) -------------------------
+// --- Custom OCaml Lambda (provided.al2023 / bootstrap) -----------------------
 
-// The handler is a Go binary named "bootstrap", built by `npm run build:lambda`
-// into dist/lambda.zip (GOOS=linux GOARCH=arm64). On the provided.al2023 custom
-// runtime AWS executes the "bootstrap" file from the deployment package.
+// The handler is an OCaml binary named "bootstrap", cross-compiled to
+// linux/arm64 by `npm run build:lambda` via `Dockerfile.lambda` (Docker buildx)
+// into dist/lambda.zip. On the provided.al2023 custom runtime AWS executes the
+// "bootstrap" file from the deployment package.
 const lambdaZip = path.join(__dirname, "..", "dist", "lambda.zip");
 const catalogLayerZip = path.join(__dirname, "..", "dist", "catalog-layer.zip");
 
@@ -102,7 +103,7 @@ const catalogLayerZip = path.join(__dirname, "..", "dist", "catalog-layer.zip");
 //   - no S3 read permission is needed on the Lambda role (the layer is mounted
 //     by the Lambda runtime at environment setup, not fetched per invocation).
 // The zip entry catalog/products.json lands at /opt/catalog/products.json,
-// which the handler loads at startup (see infra/lambda/main.go).
+// which the handler loads at startup (see lambda/main.ml).
 const catalogLayer = new aws.lambda.LayerVersion(
   "catalog-layer",
   {
@@ -157,7 +158,7 @@ const fn = new aws.lambda.Function(
 //
 // authorizationType "NONE" means AWS does not enforce IAM SigV4 signing at the
 // edge — but the handler authenticates every request via the x-api-key header
-// (see infra/lambda/main.go). This keeps the endpoint curl-testable while
+// (see lambda/main.ml). This keeps the endpoint curl-testable while
 // still rejecting unauthenticated callers with 401.
 const fnUrl = new aws.lambda.FunctionUrl(
   "api-command-fn-url",

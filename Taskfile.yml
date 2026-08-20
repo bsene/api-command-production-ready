@@ -259,10 +259,12 @@ tasks:
   deploy:build:
     desc: Build the Lambda deployment artefact (dist/lambda.zip + catalog layer).
     summary: |
-      Runs `npm run build` inside infra/, which compiles the Go Lambda handler
-      (GOOS=linux GOARCH=arm64) into dist/bootstrap, zips it to dist/lambda.zip,
-      and packages the shared catalog into dist/catalog-layer.zip. Must run
-      before `pulumi up` so the Function asset points at a fresh artefact.
+      Runs `npm run build` inside infra/, which cross-compiles the OCaml Lambda
+      handler to linux/arm64 via `Dockerfile.lambda` (Docker buildx), extracts
+      the `bootstrap` binary, zips it to dist/lambda.zip, and packages the
+      shared catalog into dist/catalog-layer.zip. Must run before `pulumi up`
+      so the Function asset points at a fresh artefact. Requires Docker with
+      the buildx plugin (not Go).
     cmds:
       - cmd: |
           set -euo pipefail

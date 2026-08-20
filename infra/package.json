@@ -1,9 +1,9 @@
 {
   "name": "api-command-infra",
   "version": "0.1.0",
-  "description": "Pulumi AWS project for api-command (local backend, custom Go Lambda)",
+  "description": "Pulumi AWS project for api-command (local backend, custom OCaml Lambda)",
   "scripts": {
-    "build:lambda": "mkdir -p dist && (cd lambda && GOOS=linux GOARCH=arm64 go build -trimpath -ldflags=\"-s -w\" -o ../dist/bootstrap .) && (cd dist && rm -f lambda.zip && zip -q lambda.zip bootstrap) && echo \"built dist/lambda.zip\"",
+    "build:lambda": "docker buildx build --platform linux/arm64 --load -f ../Dockerfile.lambda -t api-command-lambda:builder .. && cid=$(docker create api-command-lambda:builder) && mkdir -p dist && docker cp \"$cid\":/bootstrap dist/bootstrap && docker rm \"$cid\" >/dev/null && (cd dist && rm -f lambda.zip && zip -q lambda.zip bootstrap) && echo \"built dist/lambda.zip\"",
     "build:layer": "rm -f dist/catalog-layer.zip && mkdir -p dist && zip -q dist/catalog-layer.zip catalog/products.json && echo \"built dist/catalog-layer.zip\"",
     "clean:lambda": "rm -rf dist",
     "build": "npm run build:lambda && npm run build:layer",

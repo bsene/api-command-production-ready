@@ -1,15 +1,15 @@
-# api-command-infra (Pulumi AWS, local backend, custom Go Lambda)
+# api-command-infra (Pulumi AWS, local backend, custom OCaml Lambda)
 
 Infrastructure-as-code for the `api-command` project, managed with
 [Pulumi](https://www.pulumi.com/) using the **local backend** (file-based state
-under `~/.pulumi`, no Pulumi Cloud account) and a **custom Go Lambda function**
+under `~/.pulumi`, no Pulumi Cloud account) and a **custom OCaml Lambda function**
 on the `provided.al2023` custom runtime (a `bootstrap` binary, linux/arm64).
 
 ## Prerequisites
 
 - Pulumi CLI (`pulumi version` >= 3.x)
 - Node.js >= 20
-- Go >= 1.21 (for the Lambda handler build)
+- Docker with the buildx plugin (for the Lambda cross-compile; no Go toolchain needed)
 - AWS credentials via a named profile in `~/.aws/credentials`
 
 ## Local backend
@@ -37,20 +37,23 @@ pulumi config set aws:region eu-west-1
 pulumi config set aws:profile perso
 ```
 
-## The custom Go Lambda
+## The custom OCaml Lambda
 
 The Lambda runs on the **`provided.al2023` custom runtime**: AWS executes a
-binary named `bootstrap` from the deployment package. The handler is a
-standalone Go module under `lambda/` (its own `go.mod`, so the kata's root
-module is untouched) using `github.com/aws/aws-lambda-go`.
+binary named `bootstrap` from the deployment package. The handler is the
+OCaml library at the repo root (`lambda/`), cross-compiled to linux/arm64 by
+[`Dockerfile.lambda`](../Dockerfile.lambda). The runtime loop is hand-rolled
+in `lambda/runtime.ml` — there is no `aws-lambda-go`.
 
 ```
+repo root/
+  lambda/             # OCaml handler + custom-runtime loop (lambda_lib)
+    main.ml           # entry: loads catalog + API key, runs the loop
+    runtime.ml        # Runtime API poll/dispatch loop (hand-rolled)
+  Dockerfile.lambda   # cross-compiles bootstrap to linux/arm64 (scratch carrier)
 infra/
-  lambda/             # separate Go module (api-command/lambda)
-    go.mod            # requires github.com/aws/aws-lambda-go
-    main.go           # handler: receives a Request, returns a Response
   dist/               # build output (gitignored)
-    bootstrap         # GOOS=linux GOARCH=arm64 binary
+    bootstrap         # linux/arm64 OCaml binary (extracted from the Docker build)
     lambda.zip        # zipped bootstrap -> Lambda code package
   src/index.ts        # Pulumi program: IAM role + aws.lambda.Function
   ...
@@ -58,10 +61,11 @@ infra/
 
 ### Build
 
-The npm script cross-compiles the handler and zips it as `bootstrap`:
+The npm script cross-compiles the handler with Docker (buildx) and zips it
+as `bootstrap`:
 
 ```sh
-npm run build:lambda   # -> dist/lambda.zip
+npm run build:lambda   # Docker buildx -> dist/lambda.zip (needs Docker, not Go)
 ```
 
 This is wired into `preview`/`up`, so you normally just run:
@@ -76,8 +80,8 @@ pulumi destroy         # tear everything down
 ### Runtime details
 
 - `runtime: "provided.al2023"` — AWS-provided OS-only runtime; the `bootstrap`
-  binary implements the Lambda Runtime API (driven here by `aws-lambda-go`).
-- `architectures: ["arm64"]` — Graviton, built with `GOARCH=arm64`.
+  binary implements the Lambda Runtime API (hand-rolled in `lambda/runtime.ml`).
+- `architectures: ["arm64"]` — Graviton, cross-compiled via `Dockerfile.lambda`.
 - `handler: "bootstrap"` — required entry name on the custom runtime.
 - IAM role: `lambda.amazonaws.com` trust + `AWSLambdaBasicExecutionRole`
   (CloudWatch Logs write).
@@ -87,7 +91,7 @@ pulumi destroy         # tear everything down
 The product catalog is a **single shared JSON fixture** —
 `infra/catalog/products.json` — that is the source of truth for both the
 production Lambda and the local products API fixture
-(`cmd/products-api` in the repo root). Both serve the exact same data, so a
+(`server/main.exe` in the repo root). Both serve the exact same data, so a
 change to the JSON is reflected everywhere without drift.
 
 - **Production**: `npm run build:layer` zips `catalog/products.json` into
@@ -95,7 +99,7 @@ change to the JSON is reflected everywhere without drift.
   read-only at `/opt/catalog/products.json`. The handler loads it at startup
   and serves it on `GET /products` (mirroring the fixture's wire format,
   including the French `prix` field).
-- **Local fixture**: `cmd/products-api` reads the same file at startup
+- **Local fixture**: `server/main.exe` reads the same file at startup
   (`-catalog` flag, `PRODUCTS_CATALOG` env, or the default
   `infra/catalog/products.json`).
 
@@ -162,8 +166,8 @@ unauthenticated Function URL invocations). The handler-level `x-api-key` check
 is what actually gates access (A01 broken access control).
 
 Function URLs deliver requests as **API Gateway v2 (HTTP API) payload-format-2.0
-events**, so the handler reads the HTTP body from `event.Body` (see
-`lambda/main.go`), not from the top-level event.
+events**, so the handler decodes the HTTP body from the event (see
+`lambda/main.ml` and `lambda/event.ml`), not from the top-level event.
 
 Invoke it directly:
 
@@ -186,7 +190,7 @@ curl -X POST "$(pulumi stack output functionUrl)" \
 
 ## Notes
 
-- `lambda/main.go` authenticates every request via the `x-api-key` header
+- `lambda/main.ml` authenticates every request via the `x-api-key` header
   (A01). Replace the placeholder business logic with the real api-command
   logic — the auth check stays as the first gate.
 - The API key is a Pulumi config secret (`lambdaApiKey`). Set it before
