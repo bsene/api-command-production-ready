@@ -19,7 +19,7 @@ communicate with it — every request returned `401 Unauthorized`.
 | 🟢 **Detection Stage**  | `B — Security audit (OWASP Top 10 review)`             |
 | 🟢 **Startup**          | `bsene`                                                |
 | 🟢 **Status**           | `Fixed`                                                |
-| 🔵 **Weak point**       | `orders_manager.go — OrdersManager HTTP client`        |
+| 🔵 **Weak point**       | `lib/orders_manager.ml — Orders_manager HTTP client`    |
 | 🟢 **Owner**            | `birrame.sene`                                         |
 | 🟢 **napta_project_id** | `api-command`                                          |
 | **Standard**            | 🎓 Dantotsu                                            |
@@ -39,9 +39,9 @@ authentication (reintroducing A01) or bypass the client entirely.
 
 ## Causal Chain
 
-1. The server fixture (`cmd/products-api`) was hardened with `apiKeyAuth`
+1. The server fixture (`server/server.ml`) was hardened with `api_key_auth`
    middleware requiring an `x-api-key` header on every request.
-2. The `OrdersManager` client in `orders_manager.go` was not updated to send
+2. The `Orders_manager` client in `lib/orders_manager.ml` was not updated to send
    that header — `fetchProducts` builds a `GET` request with no authentication
    headers.
 3. When the client calls the authenticated server, the `apiKeyAuth` middleware
@@ -141,9 +141,12 @@ automatically. No other outbound HTTP call sites exist in the codebase.
 
 - Document the client↔server auth contract in the `OrdersManager` docstring:
   "When the products API enforces authentication, pass `WithAPIKey`."
-- Add a CI check (or smoke-test scenario) that boots the authenticated fixture
-  and calls `OrdersManager` against it end-to-end, failing if any method
-  returns 401.
+- ✅ **Implemented** — Add a CI check (or smoke-test scenario) that boots the
+  authenticated fixture and calls `OrdersManager` against it end-to-end,
+  failing if any method returns 401. Delivered as `smoke/client_smoke.exe`
+  (driven by `task smoke:client`, folded into `task smoke`), which builds the
+  real SSRF-safe `Cohttp_backend` and asserts that a manager with the wrong
+  `x-api-key` fails while one with the right key succeeds.
 
 ### Weak Point History
 

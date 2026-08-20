@@ -2,45 +2,48 @@
 
 ## Project Structure & Module Organization
 
-- `orders_manager.go`, `product.go` — core `OrdersManager` client and wire types (`Product`, `CartItem`, `CartValidation`, …)
-- `orders_manager_test.go` — unit tests using a mocked HTTP transport
-- `cmd/products-api/` — local HTTP fixture emulating the products API; the smoke-test target
+- `lib/orders_manager.ml`, `lib/product.ml`, `lib/wire.ml` — core `Orders_manager` client and wire types (`Product`, `Cart_item`, `Cart_validation`, …)
+- `lib/cohttp_backend.ml` — the production SSRF-safe HTTP backend (dial-time IP check via a custom `Resolver_lwt.t`)
+- `lib/test/orders_manager_test.ml` — unit tests using a mocked HTTP backend
+- `server/main.ml` — local HTTP fixture emulating the products API; the smoke-test target
 - `smoke-tests/*.hurl` — black-box QA scenarios run with `hurl`
+- `smoke/client_smoke.ml` — standalone client smoke driving the real client against the fixture
 - `docs/dantotsu/` — Dantotsu defect-analysis reports; `docs/checklists/` — review and hardening checklists
-- `infra/` — Pulumi (TypeScript) project deploying a Go Lambda; `infra/lambda/` holds the Go handler
+- `infra/` — Pulumi (TypeScript) project deploying an OCaml Lambda; `lambda/` holds the OCaml handler (built via `Dockerfile.lambda`)
 
 ## Build, Test, and Development Commands
 
-- `go test ./...` — run unit tests
-- `go vet ./...` — static analysis (also `task smoke:vet`)
-- `task smoke` — boot the fixture, run every Hurl scenario (the sign-off gate)
+- `dune build` — build the OCaml workspace (lib + server + lambda)
+- `dune runtest` — run all Alcotest suites (also `task smoke:vet`)
+- `task smoke` — boot the fixture, run every Hurl scenario + the client smoke (the sign-off gate)
+- `task smoke:client` — run only the OCaml client smoke against a running fixture
 - `task smoke:list` — per-scenario PASS/FAIL summary; `task smoke:count` — scenario count
 - `task` — list all tasks
 - Infra: `cd infra && npm run build:lambda` (build `dist/lambda.zip`), `npm run preview` / `npm run up` (Pulumi)
 
 ## Coding Style & Naming Conventions
 
-- Go: `gofmt`-formatted, standard-library idioms, idiomatic naming (`NewOrdersManager`, `WithAPIKey`)
-- `slog` structured logging is mandatory; never use `fmt.Println`/`log.Printf` for security-relevant events. Log field names are `snake_case`; never log secrets
-- Model counts/quantities as the `Quantity` type so invalid states are unrepresentable; validate `> 0` at point of use
+- OCaml: `ocamlformat`-clean, idiomatic naming (`Orders_manager.create`, `with_api_key`), follows `dune-project`
+- `lib/log.ml` (the `Log` module) structured logging is mandatory; never print to stdout directly for security-relevant events. Log field names are `snake_case`; never log secrets
+- Model counts/quantities as the `quantity` type in `lib/product.ml` so invalid states are unrepresentable; validate `> 0` at point of use
 - Infra TypeScript follows `infra/tsconfig.json`; build via npm scripts
 
 ## Testing Guidelines
 
-- Go tests use `TestXxx` naming, table-driven cases, and `httptest`-mocked transports
-- Security controls (A01, A02, A04, A10) and the slog contract (A09) must have test coverage
+- OCaml tests are Alcotest suites with a mocked HTTP backend in `lib/test/orders_manager_test.ml`
+- Security controls (A01, A02, A04, A10) and the `Log` module contract (A09) must have test coverage
 - One `.hurl` file per smoke scenario in `smoke-tests/`; run with `task smoke`
-- `WithHTTPClient` bypasses SSRF protection — confine it to `*_test.go` files
+- The SSRF-bypass hook (`with_http_client` / insecure transport) is test-only — confine it to `lib/test/`
 
 ## Commit & Pull Request Guidelines
 
 - Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`; use a scope for infra (`feat(infra):`, `fix(lambda):`)
 - Keep commits atomic; explain the *why* in the body
-- PRs touching `orders_manager.go`, `cmd/products-api/main.go`, or new HTTP code must pass `docs/checklists/code-review.md`
+- PRs touching `lib/orders_manager.ml`, `server/main.ml`, or new HTTP code must pass `docs/checklists/code-review.md`
 - New OWASP-relevant fixes: add a Dantotsu report under `docs/dantotsu/` from `_template.md` and link it in the README
 
 ## Security & Configuration Tips
 
-- Base URLs default to HTTPS; `WithInsecureHTTP()` is for local dev only
-- The SSRF-safe transport is the default — never dial with `http.DefaultTransport`
-- Every `http.Server{}` needs timeouts, `MaxHeaderBytes`, and panic-recovery middleware
+- Base URLs default to HTTPS; `with_insecure_http` is for local dev only
+- The SSRF-safe transport is the default — never dial with the OS default transport
+- Every HTTP server (`server/server.ml`) needs timeouts, a max header size, and panic-recovery middleware

@@ -30,12 +30,14 @@ without relying on the local fixture.
 
 ## Layout
 
-- `orders_manager.go` — the `OrdersManager` client (list, availability, search, cart validation)
-- `product.go` — wire types (`Product`, `CartItem`, `CartValidation`, …)
-- `orders_manager_test.go` — unit tests (mocked HTTP transport)
-- `cmd/products-api` — a real HTTP server emulating the products API, used as the smoke-test target
+- `lib/orders_manager.ml` — the `Orders_manager` client (list, availability, search, cart validation)
+- `lib/cohttp_backend.ml` — the production SSRF-safe HTTP backend (dial-time IP check)
+- `lib/product.ml` / `lib/wire.ml` — wire types (`Product`, `Cart_item`, `Cart_validation`, …)
+- `lib/test/orders_manager_test.ml` — unit tests (mocked HTTP backend)
+- `server/main.exe` — a real HTTP server emulating the products API, used as the smoke-test target
 - `infra/catalog/products.json` — the **single shared product catalog** (JSON fixture) served by both the local fixture and the production Lambda layer
 - `smoke-tests/*.hurl` — QA smoke scenarios, run with the `hurl` tool against a real server
+- `smoke/client_smoke.ml` — standalone client smoke driving the real client against the fixture
 - `docs/dantotsu/` — Dantotsu defect-analysis reports for each fixed OWASP issue
 
 ## Security
@@ -48,15 +50,15 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
     (`-api-key` flag / `PRODUCTS_API_KEY` env); anonymous calls get `401`.
   - The listen address defaults to loopback and refuses non-loopback binds
     unless `-allow-external` is passed, preventing accidental exposure.
-  - The `OrdersManager` client sends `x-api-key` via the `WithAPIKey` option
+  - The `Orders_manager` client sends `x-api-key` via the `~api_key` option
     when the upstream API requires authentication.
   - Report: [docs/dantotsu/A01-client-api-key-auth.md](docs/dantotsu/A01-client-api-key-auth.md)
 
 - **A02 – Cryptographic Failures**
-  - `NewOrdersManager` rejects plain `http://` base URLs by default; use
-    `WithInsecureHTTP()` only for the local dev fixture.
-  - `WithTLSConfig(*tls.Config)` pins TLS verification (custom RootCAs /
-    MinVersion) on the client.
+  - `Orders_manager.create` rejects plain `http://` base URLs by default; use
+    `~allow_insecure_http:true` only for the local dev fixture.
+  - The Cohttp backend pins TLS verification (custom RootCAs / MinVersion)
+    on the client.
   - The fixture can serve HTTPS via `-tls-cert` / `-tls-key`, and sets
     `Strict-Transport-Security` over TLS plus baseline defensive headers.
 
@@ -66,15 +68,15 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
     prevent requests to cloud metadata endpoints (`169.254.169.254`),
     loopback, private subnets, and link-local addresses. See
     [docs/dantotsu/A04-A10-ssrf-protection.md](docs/dantotsu/A04-A10-ssrf-protection.md).
-  - **Negative quantity validation**: `ValidateCart` rejects zero or negative
-    `CartItem.Quantity` values (`CartItemInvalidQuantity` reason), preventing
+  - **Negative quantity validation**: `validate_cart` rejects zero or negative
+    `Cart_item.quantity` values (`Cart_item_invalid_quantity` reason), preventing
     cart-total manipulation. See
     [docs/dantotsu/A04-negative-quantity-validation.md](docs/dantotsu/A04-negative-quantity-validation.md).
 
 - **A05 – Security Misconfiguration**
   - The server sets `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`,
     `IdleTimeout`, and `MaxHeaderBytes` (1 MiB).
-  - A `recoveryMiddleware` catches panics in any handler or middleware, logs
+  - The `recover` middleware catches exceptions in any handler or middleware, logs
     them, and returns a clean `500` instead of crashing the process.
   - Security headers (`X-Content-Type-Options`, `X-Frame-Options`,
     `Cache-Control`, `Content-Security-Policy`, HSTS over TLS) are set on
@@ -86,9 +88,9 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
 
 - **A09 – Security Logging and Monitoring Failures**
   - The server logs every request (method, path, status, remote, elapsed) via
-    `slog` structured logging through the `requestLogger` middleware.
-  - The `OrdersManager` logs outbound requests (URL, status, count, elapsed),
-    upstream errors, and cart validation failures at appropriate levels.
+    the `Log` module through the `request_logger` middleware.
+  - The `Orders_manager` client logs outbound requests (URL, status, count,
+    elapsed), upstream errors, and cart validation failures at appropriate levels.
   - Report: [docs/dantotsu/A09-structured-logging.md](docs/dantotsu/A09-structured-logging.md)
 
 - **A10 – Server-Side Request Forgery (SSRF)**
@@ -96,19 +98,18 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
 
 ## Options reference
 
-| Option | Purpose |
+| `Orders_manager.create` option | Purpose |
 |---|---|
-| `WithAPIKey(key)` | Sets the `x-api-key` header on outbound requests (A01). |
-| `WithTLSConfig(cfg)` | Pins TLS verification with a custom `*tls.Config` (A02). |
-| `WithInsecureHTTP()` | Allows `http://` base URLs for local dev only (A02). |
-| `WithHTTPClient(client)` | Overrides the HTTP client (test-only; bypasses SSRF protection). |
-| `WithLogger(logger)` | Overrides the default `slog.Logger` for structured logging (A09). |
+| `~api_key:"…"` | Sets the `x-api-key` header on outbound requests (A01). |
+| `~http_client:(module …)` | Injects the HTTP backend (production: `Cohttp_backend`; tests: `Fake_transport`; test-only SSRF bypass). |
+| `~allow_insecure_http:true` | Allows `http://` base URLs for local dev only (A02). |
+| `~logger` | Injects a `Log.t` for structured logging (A09). |
 
 ## Logging contract
 
-`slog` is the mandatory structured-logging interface for all code in this
-repository. `fmt.Println` / `log.Printf` MUST NOT be used for
-security-relevant events.
+`lib/log.ml` (the `Log` module) is the mandatory structured-logging interface
+for all code in this repository. Raw `print_endline`/`Printf.printf` MUST NOT
+be used for security-relevant events.
 
 ### Levels
 
@@ -118,9 +119,9 @@ security-relevant events.
 | `Warn` | Recoverable failure: non-OK upstream status, cart validation failure, unauthenticated request rejected. |
 | `Error` | Unexpected failure: request build error, transport error, JSON decode error, recovered panic. |
 
-### Server (`cmd/products-api`) — `requestLogger` middleware
+### Server (`server/server.ml`) — `request_logger` middleware
 
-Every request is logged once by the `requestLogger` middleware with:
+Every request is logged once by the `request_logger` middleware with:
 
 | Field | Example | Notes |
 | --- | --- | --- |
@@ -131,9 +132,9 @@ Every request is logged once by the `requestLogger` middleware with:
 | `elapsed_ms` | `3` | Wall-clock latency in ms |
 
 Recovered panics are logged at `Error` with `method`, `path`, `remote`, and
-`panic` by the `recoveryMiddleware`.
+`panic` by the `recover` middleware.
 
-### Client (`OrdersManager`) — `fetchProducts`
+### Client (`Orders_manager`) — `fetch_products`
 
 | Event | Level | Fields |
 | --- | --- | --- |
@@ -146,7 +147,7 @@ Recovered panics are logged at `Error` with `method`, `path`, `remote`, and
 
 ### Conventions
 
-- All field names are `snake_case` string keys (slog convention).
+- All field names are `snake_case` string keys (the `Log` module's key-value pairs).
 - `elapsed` / `elapsed_ms` are wall-clock durations from request start.
 - Never log secrets (API keys, credentials). The `x-api-key` value is never
   emitted; only its presence/absence is implied by the auth outcome.
@@ -156,14 +157,22 @@ Recovered panics are logged at `Error` with `method`, `path`, `remote`, and
 ## Smoke tests
 
 The smoke suite is black-box HTTP: it runs `hurl --test` against a real server
-process. By default the Taskfile boots the local `cmd/products-api` fixture on
+process, plus a standalone OCaml client smoke that drives the real
+`Orders_manager` client (via the SSRF-safe `Cohttp_backend`) against the same
+fixture. By default the Taskfile boots the local `server/main.exe` fixture on
 `127.0.0.1:18080`; set `BASE_URL` to point at a deployed instance instead.
 
 ```sh
-task smoke        # run every scenario
-task smoke:list   # per-scenario PASS/FAIL summary
-task smoke:count  # how many scenarios
+task smoke         # run every Hurl scenario + the client smoke
+task smoke:list    # per-scenario PASS/FAIL summary
+task smoke:count   # how many scenarios
+task smoke:client  # run only the OCaml client smoke (fixture must be running)
 ```
+
+The client smoke (`smoke/client_smoke.exe`) exercises the client↔server auth
+contract end-to-end (A01): a manager with the wrong `x-api-key` must fail and
+one with the right key must succeed, closing the gap the Hurl (server-only)
+and Alcotest (mock-only) suites left open.
 
 Prerequisites: `go`, `hurl`, `task`.
 
