@@ -3,3 +3,5 @@ _build/
 *.install
 # Lambda build artifacts (Dockerfile.lambda cross-compile output): bootstrap + zip
 dist/
+# Load-testing output (generated gob/report/plot + envsubst-rendered targets; never the key).
+load-tests/results/

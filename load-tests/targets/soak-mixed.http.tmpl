@@ -1,0 +1,7 @@
+GET $LOAD_URL/products
+x-api-key: $LAMBDA_API_KEY
+
+POST $LOAD_URL
+x-api-key: $LAMBDA_API_KEY
+Content-Type: application/json
+@$REPO_ROOT/load-tests/targets/bodies/availability.json

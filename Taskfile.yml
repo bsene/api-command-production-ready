@@ -47,6 +47,11 @@ vars:
   SERVER_PID: /tmp/products-api-smoke.pid
   # Infrastructure (Pulumi AWS) project directory.
   INFRA_DIR: infra
+  # ── Load testing (vegeta) — targets ONLY the Lambda Function URL ──
+  LOAD_DIR: load-tests
+  LOAD_URL: "{{.PROD_URL}}"
+  LOAD_RESULTS: load-tests/results
+  LOAD_GEN: load-tests/results/.gen
 
 tasks:
 
@@ -303,3 +308,152 @@ tasks:
           cd {{.INFRA_DIR}}
           npm run build
           pulumi preview
+
+  # ------------------------------------------------------------------ load
+  # Load testing (vegeta) — targets ONLY the deployed Lambda Function URL.
+  # Never touches the local Dream fixture (server/), BASE_URL, or PORT.
+  load:
+    desc: Run the safe load suite (baseline + availability + soak) against the Lambda Function URL.
+    summary: |
+      Runs the three under-capacity vegeta scenarios (baseline, availability,
+      soak) against the deployed Lambda Function URL. Spike and throttle are
+      deliberately excluded: they are opt-in (task load:spike / task load:throttle)
+      so the default suite can never self-DoS the production endpoint.
+    cmds:
+      - task: load:baseline
+      - task: load:availability
+      - task: load:soak
+
+  load:check:
+    desc: Verify prerequisites for load testing (LAMBDA_API_KEY, vegeta, envsubst).
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          if [ -z "${LAMBDA_API_KEY:-}" ]; then echo "LAMBDA_API_KEY required (same gate as smoke:prod)." >&2; exit 1; fi
+          command -v vegeta >/dev/null 2>&1 || { echo "vegeta not found. Install: go install github.com/tsenart/vegeta/v2@latest (or brew install vegeta)" >&2; exit 1; }
+          command -v envsubst >/dev/null 2>&1 || { echo "envsubst not found. Install: brew install gettext (or apt install gettext-base)" >&2; exit 1; }
+
+  load:targets:
+    desc: Render the vegeta target templates into LOAD_GEN (internal).
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          mkdir -p {{.LOAD_GEN}} {{.LOAD_RESULTS}}
+          export LOAD_URL="{{.LOAD_URL}}" LAMBDA_API_KEY="$LAMBDA_API_KEY" REPO_ROOT="$(pwd)"
+          for tmpl in {{.LOAD_DIR}}/targets/*.http.tmpl; do
+            envsubst < "$tmpl" > "{{.LOAD_GEN}}/$(basename "$tmpl" .tmpl)"
+          done
+
+  load:baseline:
+    desc: Baseline — GET /products at 1 rps for 10s (expect 100% 200, no 429).
+    deps:
+      - load:check
+      - load:targets
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          vegeta attack -targets={{.LOAD_GEN}}/get-products.http -rate=1 -duration=10s -workers=1 > {{.LOAD_RESULTS}}/baseline.bin
+          vegeta report -type=text < {{.LOAD_RESULTS}}/baseline.bin | tee {{.LOAD_RESULTS}}/baseline.txt
+          vegeta plot -title="baseline" < {{.LOAD_RESULTS}}/baseline.bin > {{.LOAD_RESULTS}}/baseline.html
+
+  load:availability:
+    desc: Availability — POST / at 1 rps for 10s (expect 100% 200, no 429).
+    deps:
+      - load:check
+      - load:targets
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          vegeta attack -targets={{.LOAD_GEN}}/post-availability.http -rate=1 -duration=10s -workers=1 > {{.LOAD_RESULTS}}/availability.bin
+          vegeta report -type=text < {{.LOAD_RESULTS}}/availability.bin | tee {{.LOAD_RESULTS}}/availability.txt
+          vegeta plot -title="availability" < {{.LOAD_RESULTS}}/availability.bin > {{.LOAD_RESULTS}}/availability.html
+
+  load:soak:
+    desc: Soak — mixed GET/POST at 2 rps for 120s (expect ~100% 200, no 429).
+    deps:
+      - load:check
+      - load:targets
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          vegeta attack -targets={{.LOAD_GEN}}/soak-mixed.http -rate=2 -duration=120s -workers=2 > {{.LOAD_RESULTS}}/soak.bin
+          vegeta report -type=text < {{.LOAD_RESULTS}}/soak.bin | tee {{.LOAD_RESULTS}}/soak.txt
+          vegeta plot -title="soak" < {{.LOAD_RESULTS}}/soak.bin > {{.LOAD_RESULTS}}/soak.html
+
+  load:spike:
+    desc: Spike — GET /products at 20 rps for 5s (expect mostly 200). Opt-in.
+    summary: |
+      WARNING: this scenario pushes the Lambda above its reserved concurrency
+      and may produce 429s. It is excluded from `task load` on purpose.
+    deps:
+      - load:check
+      - load:targets
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          echo "WARNING: spike scenario — may exceed reservedConcurrency and produce 429s." >&2
+          vegeta attack -targets={{.LOAD_GEN}}/get-products.http -rate=20 -duration=5s -workers=5 > {{.LOAD_RESULTS}}/spike.bin
+          vegeta report -type=text < {{.LOAD_RESULTS}}/spike.bin | tee {{.LOAD_RESULTS}}/spike.txt
+          vegeta plot -title="spike" < {{.LOAD_RESULTS}}/spike.bin > {{.LOAD_RESULTS}}/spike.html
+
+  load:throttle:
+    desc: Throttle — GET /products at 1000 rps for 3s (EXPECTS 429; validates the DoS guard). Opt-in.
+    summary: |
+      WARNING: this scenario deliberately saturates the Lambda to confirm the
+      reservedConcurrency=5 DoS guard throttles with HTTP 429. A 0% 429 result
+      means the guard is inactive — investigate. Excluded from `task load`.
+    deps:
+      - load:check
+      - load:targets
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          echo "WARNING: throttle scenario — expects a large 429 fraction (DoS guard active)." >&2
+          vegeta attack -targets={{.LOAD_GEN}}/get-products.http -rate=1000 -duration=3s -workers=100 > {{.LOAD_RESULTS}}/throttle.bin
+          vegeta report -type=text < {{.LOAD_RESULTS}}/throttle.bin | tee {{.LOAD_RESULTS}}/throttle.txt
+          vegeta plot -title="throttle" < {{.LOAD_RESULTS}}/throttle.bin > {{.LOAD_RESULTS}}/throttle.html
+
+  load:list:
+    desc: Run every load scenario and print a PASS/FAIL gate (exits non-zero on violation).
+    summary: |
+      Runs all five scenarios, then asserts the 429 expectation per scenario:
+      under-cap scenarios (baseline, availability, soak, spike) must have zero
+      429s; the throttle scenario must have at least one 429. Prints ✅/❌ per
+      scenario and exits non-zero if any expectation is violated.
+    deps:
+      - load:check
+      - load:targets
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          run() {
+            name="$1"; want429="$2"; shift 2
+            vegeta attack "$@" > "{{.LOAD_RESULTS}}/$name.bin"
+            vegeta report -type=text < "{{.LOAD_RESULTS}}/$name.bin" | tee "{{.LOAD_RESULTS}}/$name.txt"
+            vegeta plot -title="$name" < "{{.LOAD_RESULTS}}/$name.bin" > "{{.LOAD_RESULTS}}/$name.html"
+            codes=$(grep "Status Codes" "{{.LOAD_RESULTS}}/$name.txt")
+            n429=$(echo "$codes" | grep -o "429:[0-9]*" | cut -d: -f2)
+            n429=${n429:-0}
+            if [ "$want429" = "yes" ]; then
+              if [ "$n429" -gt 0 ]; then echo "✅ PASS  $name (429 present: $n429)"; else echo "❌ FAIL  $name (expected 429, got 0)"; return 1; fi
+            else
+              if [ "$n429" -eq 0 ]; then echo "✅ PASS  $name (no 429)"; else echo "❌ FAIL  $name (unexpected 429: $n429)"; return 1; fi
+            fi
+          }
+          fail=0
+          run baseline no -targets={{.LOAD_GEN}}/get-products.http -rate=1 -duration=10s -workers=1 || fail=1
+          run availability no -targets={{.LOAD_GEN}}/post-availability.http -rate=1 -duration=10s -workers=1 || fail=1
+          run soak no -targets={{.LOAD_GEN}}/soak-mixed.http -rate=2 -duration=120s -workers=2 || fail=1
+          run spike no -targets={{.LOAD_GEN}}/get-products.http -rate=20 -duration=5s -workers=5 || fail=1
+          run throttle yes -targets={{.LOAD_GEN}}/get-products.http -rate=1000 -duration=3s -workers=100 || fail=1
+          [ "$fail" -eq 0 ]
+
+  load:url:
+    desc: Show the Lambda Function URL targeted by the load tests.
+    cmds:
+      - echo "{{.LOAD_URL}}"
+
+  load:clean:
+    desc: Remove generated load-test results and rendered targets.
+    cmds:
+      - rm -rf {{.LOAD_RESULTS}}
