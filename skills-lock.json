@@ -55,6 +55,12 @@
       "skillPath": "markdown/SKILL.md",
       "computedHash": "2bb45c53afcbdf8dd75b7963c531d2c7687435b8f8d64f219afe3730c8839791"
     },
+    "ocaml": {
+      "source": "bsene/skills",
+      "sourceType": "github",
+      "skillPath": "ocaml/SKILL.md",
+      "computedHash": "97a5b13a0b44e556306abcc85d33a1095aa252b324867016424fda3cb4f8e9da"
+    },
     "prototype": {
       "source": "mattpocock/skills",
       "sourceType": "github",

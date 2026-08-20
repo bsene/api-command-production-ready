@@ -17,3 +17,8 @@
  (name ssrf_test)
  (libraries apicommand alcotest)
  (package api-command))
+
+(test
+ (name orders_manager_test)
+ (libraries apicommand alcotest lwt lwt.unix)
+ (package api-command))
