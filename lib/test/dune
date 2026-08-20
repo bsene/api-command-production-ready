@@ -1,0 +1,19 @@
+(test
+ (name product_test)
+ (libraries apicommand alcotest)
+ (package api-command))
+
+(test
+ (name constant_time_test)
+ (libraries apicommand alcotest)
+ (package api-command))
+
+(test
+ (name log_test)
+ (libraries apicommand alcotest)
+ (package api-command))
+
+(test
+ (name ssrf_test)
+ (libraries apicommand alcotest)
+ (package api-command))
