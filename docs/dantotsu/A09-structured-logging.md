@@ -19,7 +19,7 @@ API errors. Security incidents and operational issues were invisible.
 | 🟢 **Detection Stage**  | `B — Security audit (OWASP Top 10 review)`             |
 | 🟢 **Startup**          | `bsene`                                                |
 | 🟢 **Status**           | `Fixed`                                                |
-| 🔵 **Weak point**       | `orders_manager.go + cmd/products-api/main.go`         |
+| 🔵 **Weak point**       | `lib/orders_manager.ml + server/server.ml`             |
 | 🟢 **Owner**            | `birrame.sene`                                         |
 | 🟢 **napta_project_id** | `api-command`                                          |
 | **Standard**            | 🎓 Dantotsu                                            |
@@ -46,14 +46,12 @@ API errors. Security incidents and operational issues were invisible.
 
 ## Causal Chain
 
-1. The `OrdersManager` used no logging library — `fetchProducts` built a
-   request, called `m.client.Do`, and returned errors as Go `error` values
-   with no side-channel logging.
-2. The `products-api` server used `log.Printf` for startup messages but had
-   no per-request access log. The catalog handler logged encode errors via
-   `log.Printf` but nothing else.
-3. No `slog` (or any structured logger) was configured anywhere in the
-   codebase.
+1. The `Orders_manager` client used no logging library — `fetch_products` built a
+   request, called the HTTP backend, and returned errors as OCaml `result`
+   values with no side-channel logging.
+2. The products-api server had no per-request access log. The catalog handler
+   logged nothing on error.
+3. No structured logger was configured anywhere in the codebase.
 4. The OWASP audit flagged this as A09 (Security Logging and Monitoring
    Failures) but no remediation was applied.
 
@@ -84,10 +82,10 @@ failures. We can add logging later if we need it."
 
 ### Contributing Factor
 
-Go 1.21+ includes `log/slog` in the standard library (no third-party
-dependency needed), but the codebase predates the adoption of `slog` or was
-written without awareness of it. The `go.mod` declares `go 1.26.1`, so
-`log/slog` is available.
+The OCaml port ships a small `Log` module (`lib/log.ml`) emitting Go-slog
+-style text-handler lines (level=INFO/WARN/ERROR, key=value pairs) into a
+buffer and optionally stdout. No third-party logging library is needed; the
+port predates any structured logger in the codebase.
 
 ---
 
@@ -109,7 +107,7 @@ A02 (TLS) which had concrete code changes.
 ### 3. Missing Tests
 
 There were no tests asserting log output because there was no logging. A
-test that captures `slog` output and asserts on log fields (level, message,
+test that captures `Log` output and asserts on log fields (level, message,
 status, elapsed) would verify logging is present and correct.
 
 ### 4. Code Review
@@ -124,32 +122,34 @@ have to specifically look for its absence, which requires a checklist item.
 
 ### Changes Made
 
-**OrdersManager client** (`orders_manager.go`):
+**Orders_manager client** (`lib/orders_manager.ml`):
 
-1. Added a `logger *slog.Logger` field, defaulting to `slog.Default()`.
-2. Added `WithLogger(logger *slog.Logger)` option for dependency injection
-   (useful for testing — inject a logger writing to `io.Discard`).
-3. `fetchProducts` now logs:
-   - `slog.Error` — request build failure (with base URL + error).
-   - `slog.Error` — request failure (with URL, elapsed, error).
-   - `slog.Warn` — non-200 response (with URL, status, elapsed).
-   - `slog.Error` — JSON decode failure (with URL, status, error).
-   - `slog.Info` — successful request (with URL, status, product count,
+1. Added a `mutable logger : Log.t` field, defaulting to `Log.create ()`.
+2. Added `set_logger` for dependency injection (tests inject a logger and
+   assert on `Log.contents`).
+3. `fetch_products` now logs via `Log.info`/`Log.warn`/`Log.error`:
+   - `Log.error` — request build failure (with URL + error).
+   - `Log.error` — request failure (with URL, elapsed, error).
+   - `Log.warn` — non-200 response (with URL, status, elapsed).
+   - `Log.error` — JSON decode failure (with URL, status, error).
+   - `Log.info` — successful request (with URL, status, product_count,
      elapsed).
-4. `ValidateCart` logs `slog.Warn` when validation fails (with item count,
-   invalid count, and details).
+4. `validate_cart` logs `Log.warn` when validation fails (with item_count,
+   invalid_count, and details).
 
-**products-api server** (`cmd/products-api/main.go`):
+**products-api server** (`server/server.ml`):
 
-1. Created a `slog.Logger` with `slog.NewTextHandler(os.Stderr, ...)`.
-2. Added `requestLogger(logger)` middleware that logs every request with:
-   - `slog.Info` — method, path, status, remote address, elapsed_ms.
-   - Uses a `statusRecorder` wrapper to capture the response status code.
-3. The catalog handler's encode error now logs via `slog.Error` instead of
-   `log.Printf`.
-4. Startup messages use `slog.Info` with structured fields (addr, tls).
-5. The `recoveryMiddleware` (added for A05) logs panics via `slog.Error` with
-   method, path, remote, and panic value.
+1. The `Log` module writes `level=... msg="..." k=v` lines; production entry
+   points pass `~out:stdout`.
+2. Added `request_logger` middleware that logs every request with:
+   - `Log.info` — method, path, status, remote, elapsed_ms.
+   - Reads the status from the response after the inner handler runs
+     (mirroring Go's `statusRecorder`).
+3. The catalog handler's encode error now logs via `Log.error` instead of
+   nothing.
+4. Startup messages use `Log.info` with structured fields (addr, tls).
+5. The `recover` middleware (added for A05) logs exceptions via `Log.error`
+   with method, path, remote, and panic value.
 
 ### Result
 
@@ -160,8 +160,8 @@ have to specifically look for its absence, which requires a checklist item.
 - Cart validation failures are logged with item counts and per-item details.
 - Upstream errors (non-200, decode failures, network errors) are logged at
   Error/Warn level with full context.
-- All logs use structured key-value pairs (slog), enabling filtering and
-  correlation in a SIEM or log aggregator.
+- All logs use structured key-value pairs (`Log` module), enabling filtering
+  and correlation in a SIEM or log aggregator.
 
 ---
 
@@ -169,17 +169,17 @@ have to specifically look for its absence, which requires a checklist item.
 
 ### Similar Instances
 
-Every HTTP call site in the codebase now logs. The `findProduct` method
-delegates to `fetchProducts` and inherits logging. No other outbound HTTP
+Every HTTP call site in the codebase now logs. The `is_available` method
+delegates to `fetch_products` and inherits logging. No other outbound HTTP
 call sites exist. The server has a single mux with a single route; the
 request logger middleware covers all routes automatically.
 
 ### Prevention Strategy
 
-- Make `slog` the mandatory logging interface for all new code. Add a review
-  checklist item: "Every new HTTP handler or outbound HTTP call must log at
-  Info (success) and Error/Warn (failure) with structured fields."
-- Consider adding a test that captures slog output and asserts on expected
+- Make the `Log` module the mandatory logging interface for all new code. Add
+  a review checklist item: "Every new HTTP handler or outbound HTTP call must
+  log at Info (success) and Error/Warn (failure) with structured fields."
+- Consider adding a test that captures `Log` output and asserts on expected
   log lines for critical paths (auth failure, cart validation failure,
   upstream error).
 - Document the logging contract in the README: what is logged, at what level,
@@ -189,6 +189,6 @@ request logger middleware covers all routes automatically.
 
 First occurrence. The weak point is the cross-cutting nature of logging — it
 touches every request path but belongs to no single component. The middleware
-pattern (server) and the centralized `fetchProducts` (client) ensure all
+pattern (server) and the centralized `fetch_products` (client) ensure all
 paths are covered, but any new call site added outside these patterns would
 need its own logging.

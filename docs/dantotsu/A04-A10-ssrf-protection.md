@@ -20,7 +20,7 @@ server-side request forgery (SSRF).
 | 🟢 **Detection Stage**  | `B — Security audit (OWASP Top 10 review)`                     |
 | 🟢 **Startup**          | `bsene`                                                        |
 | 🟢 **Status**           | `Fixed`                                                        |
-| 🔵 **Weak point**       | `orders_manager.go — validateBaseURL + HTTP transport dialer`  |
+| 🔵 **Weak point**       | `lib/orders_manager.ml + lib/ssrf.ml — validate_base_url + HTTP transport dialer` |
 | 🟢 **Owner**            | `birrame.sene`                                                 |
 | 🟢 **napta_project_id** | `api-command`                                                  |
 | **Standard**            | 🎓 Dantotsu                                                    |
@@ -170,7 +170,7 @@ than "does it prevent connecting to internal services?"
 
 No other outbound HTTP call sites exist in the codebase. The
 `findProduct` method delegates to `fetchProducts`, so it inherits the
-protection. The `cmd/products-api` server makes no outbound requests.
+protection. The `server/` server makes no outbound requests.
 
 ### Prevention Strategy
 

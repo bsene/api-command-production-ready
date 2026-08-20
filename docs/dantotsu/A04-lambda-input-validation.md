@@ -125,8 +125,8 @@ attacker-controlled input at scale.
 
 ### Similar Instances
 
-The local fixture (`cmd/products-api/main.go`) and the root `OrdersManager`
-client both validate quantities at point of use (`Quantity` type, `> 0`
+The local fixture (`server/server.ml`) and the root `Orders_manager`
+client both validate quantities at point of use (`quantity` type, `> 0`
 checks). The Lambda handler was the only unvalidated input surface.
 
 ### Prevention Strategy

@@ -19,7 +19,7 @@ taking down all in-flight requests).
 | 🟢 **Detection Stage**  | `B — Security audit (OWASP Top 10 review)`             |
 | 🟢 **Startup**          | `bsene`                                                |
 | 🟢 **Status**           | `Fixed`                                                |
-| 🔵 **Weak point**       | `cmd/products-api/main.go — http.Server config`        |
+| 🔵 **Weak point**       | `server/server.ml — HTTP server config`               |
 | 🟢 **Owner**            | `birrame.sene`                                         |
 | 🟢 **napta_project_id** | `api-command`                                          |
 | **Standard**            | 🎓 Dantotsu                                            |
@@ -161,8 +161,8 @@ reviewer checklist.
 
 ### Similar Instances
 
-The `cmd/products-api` server is the only HTTP server in the codebase. The
-`OrdersManager` is a client, not a server, and is not affected.
+The `server/` server is the only HTTP server in the codebase. The
+`Orders_manager` is a client, not a server, and is not affected.
 
 ### Prevention Strategy
 

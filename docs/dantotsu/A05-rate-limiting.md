@@ -154,7 +154,7 @@ endpoint is ever promoted beyond a prototype.
 
 ### Similar Instances
 
-The local fixture (`cmd/products-api`) is loopback-only and not internet-facing,
+The local fixture (`server/main.exe`) is loopback-only and not internet-facing,
 so it is not exposed to the same public-endpoint risk. No other public AWS
 endpoints exist in this repo.
 

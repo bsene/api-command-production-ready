@@ -5,7 +5,7 @@
 > (Security Logging & Monitoring Failures)**.
 >
 > Run through this checklist for every PR that touches
-> `orders_manager.go`, `cmd/products-api/main.go`, or adds a new HTTP
+> `lib/orders_manager.ml`, `server/main.ml`, or adds a new HTTP
 > client/server.
 
 ## 1. Numeric fields that represent a count or quantity

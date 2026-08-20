@@ -52,5 +52,5 @@ Every handler chain MUST include, in order (outermost first):
 
 ## Reference implementation
 
-`cmd/products-api/main.go` is the reference: it satisfies every item above and
+`server/server.ml` (wired by `server/main.ml`) is the reference: it satisfies every item above and
 should be used as the template for any future HTTP server in this codebase.

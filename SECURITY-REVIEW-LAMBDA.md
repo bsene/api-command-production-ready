@@ -1,15 +1,15 @@
 # Security Review — Lambda Function (api-command)
 
-**Date:** 2026-08-20
-**Scope:** Lambda handler in `infra/lambda/` and its Pulumi wiring in `infra/src/index.ts`. Report only — no code changes applied.
-**Runtime:** Go `provided.al2023` handler behind a public Lambda Function URL. AWS does not enforce auth (`authorizationType: "NONE"`); the handler authenticates each request itself via the `x-api-key` header compared constant-time against `LAMBDA_API_KEY` (injected as a Pulumi secret).
+**Date:** 2026-08-20 (updated for the OCaml port, commit `d8386e4`+)
+**Scope:** Lambda handler in `lambda/` (OCaml, `lambda_handler.ml`) and its Pulumi wiring in `infra/src/index.ts`. Report only — no code changes applied.
+**Runtime:** OCaml `provided.al2023` handler (hand-rolled Runtime API loop in `lambda/runtime.ml`) behind a public Lambda Function URL. AWS does not enforce auth (`authorizationType: "NONE"`); the handler authenticates each request itself via the `x-api-key` header compared constant-time against `LAMBDA_API_KEY` (injected as a Pulumi secret).
 
 ## What is already done well
 
-- Constant-time key comparison (`crypto/subtle.ConstantTimeCompare`) — no timing side-channel on the secret. `infra/lambda/main.go:72`.
-- Fail-closed: empty configured key returns 500, never open. `infra/lambda/main.go:66-69`.
-- Auth gate runs before business logic / body parse. `infra/lambda/main.go:66-78`.
-- Unauthorized log line does NOT log the provided key — no secret leakage to logs. `infra/lambda/main.go:73-76`.
+- Constant-time key comparison (`Constant_time.equal`) — no timing side-channel on the secret. `lambda/lambda_handler.ml:110`.
+- Fail-closed: key shorter than 32 bytes returns 500, never open. `lambda/lambda_handler.ml:102-106`.
+- Auth gate runs before business logic / body parse. `lambda/lambda_handler.ml:109-130`.
+- Unauthorized log line does NOT log the provided key — no secret leakage to logs. `lambda/lambda_handler.ml:111-113`.
 - API key stored as a Pulumi secret (`requireSecret`), encrypted in state, never in source. `infra/src/index.ts:39`.
 - IAM role is least-privilege: `AWSLambdaBasicExecutionRole` only (CloudWatch Logs), no broad data-plane access. `infra/src/index.ts:64-71`.
 - JSON error responses use generic messages; no stack traces returned to caller.
@@ -25,7 +25,7 @@ Consequences:
 - (c) Lambda concurrency exhaustion starving legitimate traffic.
 
 **Mitigations in place (commit e83c9d8):**
-- Strong key enforced at deploy time (`infra/src/index.ts:40-47`) and fail-closed at handler startup (`infra/lambda/main.go:87-91`): a key shorter than 32 bytes (256-bit) fails `pulumi preview`/`up`, and the handler refuses to serve.
+- Strong key enforced at deploy time (`infra/src/index.ts:40-47`) and fail-closed at handler startup (`lambda/lambda_handler.ml:102-106`): a key shorter than 32 bytes (256-bit) fails `pulumi preview`/`up`, and the handler refuses to serve.
 - Reserved concurrency capped at 5 by default (`infra/src/index.ts:53,134`), bounding cost-DoS and preventing concurrency exhaustion.
 
 **Accepted residual risk:**
@@ -41,23 +41,17 @@ Defense in depth rests entirely on the handler-level key check: if that check we
 
 Recommendation for higher-sensitivity deployments: pull the key from AWS Secrets Manager / SSM Parameter Store at cold-start (cached in the global) so rotation does not require a code redeploy and access can be audited. For current sensitivity (prototype), env var is acceptable but should be noted.
 
-### LOW — L2: Unbounded / unvalidated request body fields
-`Request` (`infra/lambda/main.go:34-39`) accepts arbitrary `Description` (no length cap), `Stock`, `Price`, `Ref` with no validation. `Description` is echoed back into `Message` via `fmt.Sprintf` (`main.go:91-92`).
+### LOW — L2: Request body field validation — **Resolved by the OCaml port**
+The Go handler accepted arbitrary `Description` (no length cap) and unvalidated `Stock`/`Price`/`Ref`. The OCaml port validates at `lambda/lambda_handler.ml:125-130`: `description` > 1 KiB → 400, `price < 0` → 400, `ref < 0` → 400, and `Message` quotes `description` via `go_quote` (`lambda/lambda_handler.ml:33-62`) so the JSON response stays well-formed. Residual: `stock` sign is still not validated separately (only used as `> 0` for availability).
 
-Impacts:
-- (a) memory amplification — a huge `description` is stored in the response body;
-- (b) negative/zero `price` accepted silently and reflected.
+### LOW — L3: Base64-encoded bodies — **Resolved by the OCaml port**
+The Go handler used `event.Body` directly with `json.Unmarshal`, ignoring `IsBase64Encoded`. The OCaml port decodes base64 first when `is_base64_encoded` is set (`decode_body`, `lambda/lambda_handler.ml:75-83`), returning 400 only on invalid base64 — closing the correctness gap.
 
-No XSS risk because the response is `application/json` (browsers do not execute it) and `json.Marshal` escapes correctly. Recommendation: cap `Description` length (e.g. reject >1KB) and validate `Price >= 0` and `Ref >= 0` before processing; return 400 on violation.
+### INFO — I1: Logs reflect untrusted `raw_path`
+The unauthorized-request log includes `raw_path` and `method` (`lambda/lambda_handler.ml:111-112`). The `Log` module (`lib/log.ml`) does NOT escape values — unlike Go's `slog` JSON handler — so a crafted path could inject log fields. Attacker-controlled path will appear in CloudWatch; low impact for this prototype, but consider escaping in `Log.log`.
 
-### LOW — L3: No handling of base64-encoded bodies
-`event.Body` is used directly with `json.Unmarshal` (`infra/lambda/main.go:83`) without checking `event.IsBase64Encoded`. If a client (or a future proxy) sends a base64-encoded body, parsing fails with a 400 — not a security hole, but a correctness gap that could mask a real issue. Recommendation: decode base64 when `IsBase64Encoded` is true before unmarshalling.
-
-### INFO — I1: Logs reflect untrusted `event.RawPath`
-The unauthorized-request log includes `event.RawPath` and `method` (`main.go:74-75`). `slog`'s JSON handler escapes values, so log injection is contained, but raw path is attacker-controlled and will appear in CloudWatch. Acceptable; noting for completeness.
-
-### INFO — I2: `jsonError` discards marshal error
-`infra/lambda/main.go:109` ignores the error from `json.Marshal` of a `map[string]string` (which cannot fail in practice). Harmless; noting only.
+### INFO — I2: `json_error` discards marshal error
+`lambda/event.ml:62-66` ignores the error from `Yojson.Safe.to_string` of a fixed record (which cannot fail in practice). Harmless; noting only.
 
 ## Severity summary
 
@@ -66,21 +60,20 @@ The unauthorized-request log includes `event.RawPath` and `method` (`main.go:74-
 | M1 | Medium | infra | Resolved: strong key + reserved concurrency; edge throttle/lockout accepted as residual risk |
 | M2 | Medium | infra | `InvokeFunction` to `*` is broader than URL-only; handler key check is sole defense |
 | L1 | Low | infra | Key in env var, no rotation path, retrievable by privileged callers |
-| L2 | Low | handler | Unbounded/unvalidated body fields (description, price, ref) |
-| L3 | Low | handler | Base64-encoded bodies not decoded (correctness gap) |
-| I1 | Info | handler | Untrusted RawPath written to logs (escaped by slog) |
-| I2 | Info | handler | `jsonError` ignores marshal error (cannot fail) |
+| L2 | Low | handler | Resolved by OCaml port: description ≤1 KiB, price/ref ≥ 0 (400 on violation) |
+| L3 | Low | handler | Resolved by OCaml port: base64 bodies decoded before parsing |
+| I1 | Info | handler | Untrusted raw_path written to logs (Log module does not escape) |
+| I2 | Info | handler | `json_error` ignores marshal error (cannot fail) |
 
 ## Verification (no changes made)
 
-No code was modified. To confirm the review reflects current code:
-- The Lambda handler test suite was removed (commit 6a93490), so `cd infra/lambda && go test ./...` runs no tests; the handler has no in-tree tests at present.
-- Re-read `infra/lambda/main.go:59-105` (handler + auth) and `infra/src/index.ts:39-160` (secret, IAM, Function URL, permissions).
+No code was modified by this review. To confirm the review reflects current code:
+- The OCaml handler has in-tree tests: `lambda/test/lambda_test.ml` and `lambda/test/loop_test.ml`, run via `dune runtest` (no Go test suite exists — the Go handler was removed in the OCaml migration).
+- Re-read `lambda/lambda_handler.ml:97-136` (handler + auth) and `infra/src/index.ts:39-160` (secret, IAM, Function URL, permissions).
 
 ## Next steps (if you choose to act later)
 
 Priority order if fixes are requested:
 1. M2 — scope the `*` `InvokeFunction` grant to URL-sourced calls.
-2. L2 — input validation (description length, price/ref sign).
-3. L1 — Secrets Manager / SSM rotation path.
-4. L3 — base64 decode.
+2. L1 — Secrets Manager / SSM rotation path.
+3. I1 — escape values in the `Log` module (`lib/log.ml`) to prevent log-field injection.

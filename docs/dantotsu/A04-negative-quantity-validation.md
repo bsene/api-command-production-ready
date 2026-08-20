@@ -19,7 +19,7 @@ to zero or negative — bypassing the business-logic price check.
 | 🟢 **Detection Stage**  | `B — Security audit (OWASP Top 10 review)`                 |
 | 🟢 **Startup**          | `bsene`                                                    |
 | 🟢 **Status**           | `Fixed`                                                    |
-| 🔵 **Weak point**       | `orders_manager.go — ValidateCart`                        |
+| 🔵 **Weak point**       | `lib/orders_manager.ml — validate_cart`                   |
 | 🟢 **Owner**            | `birrame.sene`                                             |
 | 🟢 **napta_project_id** | `api-command`                                              |
 | **Standard**            | 🎓 Dantotsu                                                |
@@ -117,8 +117,8 @@ silently passes negative ones.
 
 ### Changes Made
 
-1. Added `CartItemInvalidQuantity` to the `CartItemIssueReason` enum in
-   `product.go`.
+1. Added `Cart_item_invalid_quantity` to the `cart_item_issue_reason` enum in
+   `lib/product.ml`.
 
 2. In `ValidateCart`, the first check per item is now
    `if item.Quantity <= 0` — before product existence or stock checks. This
