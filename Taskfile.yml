@@ -44,6 +44,8 @@ vars:
   SERVER_BIN: /tmp/products-api-smoke
   SERVER_LOG: /tmp/products-api-smoke.log
   SERVER_PID: /tmp/products-api-smoke.pid
+  # Infrastructure (Pulumi AWS) project directory.
+  INFRA_DIR: infra
 
 tasks:
 
@@ -223,3 +225,62 @@ tasks:
     desc: Show the production Lambda Function URL used by smoke:prod.
     cmds:
       - echo "{{.PROD_URL}}"
+  # ------------------------------------------------------------------ deploy
+  deploy:
+    desc: Build the Lambda artefact and deploy the stack with Pulumi.
+    summary: |
+      One-shot production deploy: builds dist/lambda.zip (and the catalog
+      layer) under infra/, then runs `pulumi up` against the dev stack.
+
+      Requires the local-backend prerequisites documented in infra/README.md:
+        export PULUMI_CONFIG_PASSPHRASE="api-command-local-dev"
+        export AWS_PROFILE=default
+    cmds:
+      - task: deploy:build
+      - task: deploy:up
+
+  deploy:build:
+    desc: Build the Lambda deployment artefact (dist/lambda.zip + catalog layer).
+    summary: |
+      Runs `npm run build` inside infra/, which compiles the Go Lambda handler
+      (GOOS=linux GOARCH=arm64) into dist/bootstrap, zips it to dist/lambda.zip,
+      and packages the shared catalog into dist/catalog-layer.zip. Must run
+      before `pulumi up` so the Function asset points at a fresh artefact.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          cd {{.INFRA_DIR}}
+          npm run build
+
+  deploy:up:
+    desc: Deploy the current stack with `pulumi up` (artefact must be built).
+    summary: |
+      Runs `pulumi up` inside infra/. Assumes deploy:build (or `npm run build`)
+      has already produced dist/lambda.zip; `pulumi up` will upload it to AWS
+      and create/update the Lambda Function, IAM role, and Function URL.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          if [ -z "${PULUMI_CONFIG_PASSPHRASE:-}" ]; then
+            echo "PULUMI_CONFIG_PASSPHRASE is required for the local backend (see infra/README.md)." >&2
+            exit 1
+          fi
+          cd {{.INFRA_DIR}}
+          pulumi up --yes
+
+  deploy:preview:
+    desc: Build the artefact and run `pulumi preview` (no changes applied).
+    summary: |
+      Dry-run equivalent of `deploy`: rebuilds dist/lambda.zip so the preview
+      reflects any code changes, then runs `pulumi preview` to show the
+      planned diff without touching AWS resources.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          if [ -z "${PULUMI_CONFIG_PASSPHRASE:-}" ]; then
+            echo "PULUMI_CONFIG_PASSPHRASE is required for the local backend (see infra/README.md)." >&2
+            exit 1
+          fi
+          cd {{.INFRA_DIR}}
+          npm run build
+          pulumi preview
