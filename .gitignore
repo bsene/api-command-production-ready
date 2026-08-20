@@ -1,3 +1,5 @@
 _build/
 .merlin/
 *.install
+# Lambda build artifacts (Dockerfile.lambda cross-compile output): bootstrap + zip
+dist/

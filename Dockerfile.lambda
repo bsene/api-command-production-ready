@@ -1,0 +1,52 @@
+# L3d — arm64-linux build of the OCaml Lambda bootstrap (provided.al2023).
+#
+# Why debian-11, not debian-12 or alpine:
+#   OCaml native-code binaries link against glibc. A binary built against a
+#   *newer* glibc than the runtime refuses to load ("GLIBC_2.x not found").
+#   Amazon Linux 2023 (the provided.al2023 base) ships glibc 2.34; debian-11
+#   ships glibc 2.31, so a binary built here is forward-compatible with al2023
+#   (build old, run new). debian-12 (glibc 2.36) would NOT run on al2023.
+#
+#   We target linux/arm64 directly. On Apple Silicon hosts Docker runs this
+#   natively (no QEMU); on amd64 hosts buildx emulates it.
+#
+# The final stage is a scratch carrier — the artifact is extracted via
+# `docker create` + `docker cp :/bootstrap` (see infra/package.json build:lambda),
+# not run inside this image.
+FROM --platform=linux/arm64 ocaml/opam:debian-11-ocaml-4.14 AS builder
+
+# binutils: strip. libev-dev: lwt's libev backend (depopt). libgmp-dev /
+# pkg-config: pulled transitively by the opam dep graph. The base image lacks
+# these, and opam refuses to install the OCaml packages until the system
+# dependencies they declare are present.
+RUN sudo apt-get update \
+ && sudo apt-get install -y --no-install-recommends binutils libev-dev libgmp-dev pkg-config \
+ && sudo rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Dep layer first (cached across source edits). The bootstrap transitively
+# pulls apicommand -> catalog_lib -> lambda_lib; this is the runtime dep set
+# those need. Dream/cmdliner/fmt belong to the local HTTP server (server_lib)
+# and are NOT linked into the Lambda bootstrap (catalog_lib was split out so
+# the binary needs no Dream -> lwt_ssl -> openssl). alcotest is omitted too
+# (only tests need it). libssl-dev is therefore unnecessary.
+RUN opam install -y dune yojson ppx_deriving_yojson lwt lwt_ppx ipaddr uri cohttp-lwt-unix base64
+
+# Sources.
+COPY --chown=opam:opam dune-project ./
+COPY --chown=opam:opam lib/    ./lib/
+COPY --chown=opam:opam server/ ./server/
+COPY --chown=opam:opam lambda/ ./lambda/
+
+# Build only the bootstrap executable so dune never pulls in test-only deps.
+RUN eval "$(opam env)" && dune build lambda/main.exe
+
+# Stage + strip the artifact. provided.al2023 invokes `/bootstrap` (no .exe).
+RUN eval "$(opam env)" \
+ && cp _build/default/lambda/main.exe /tmp/bootstrap \
+ && chmod u+w /tmp/bootstrap \
+ && strip /tmp/bootstrap
+
+FROM scratch
+COPY --from=builder /tmp/bootstrap /bootstrap

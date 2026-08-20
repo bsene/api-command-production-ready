@@ -1,10 +1,20 @@
+;; Catalog loading has no Dream/HTTP dependency — it only decodes the JSON
+;; fixture via Apicommand. Keeping it in its own library lets the Lambda
+;; (which needs the catalog but serves no HTTP) link without pulling Dream
+;; (and transitively lwt_ssl/openssl) into the bootstrap binary.
+(library
+ (name catalog_lib)
+ (modules catalog)
+ (wrapped false)
+ (libraries apicommand))
+
 (library
  (name server_lib)
- (modules cli catalog server)
- (libraries apicommand cmdliner fmt dream unix))
+ (modules cli server)
+ (libraries apicommand catalog_lib cmdliner fmt dream unix))
 
 (executable
  (name main)
  (public_name products-api)
  (modules main)
- (libraries server_lib apicommand cmdliner fmt dream unix))
+ (libraries server_lib apicommand catalog_lib cmdliner fmt dream unix))

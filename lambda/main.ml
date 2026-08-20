@@ -4,7 +4,6 @@
    on miss), read [LAMBDA_API_KEY], then enter the Runtime API loop. *)
 
 open Apicommand
-open Server_lib
 open Lambda_lib
 
 let catalog_path () =

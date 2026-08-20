@@ -6,7 +6,6 @@
 
 open Apicommand
 open Product
-open Server_lib
 
 (* Walk up from the cwd (a _build/... dir) to the directory containing
    dune-project, then read infra/catalog/products.json from there. *)
