@@ -34,6 +34,7 @@ without relying on the local fixture.
 - `product.go` — wire types (`Product`, `CartItem`, `CartValidation`, …)
 - `orders_manager_test.go` — unit tests (mocked HTTP transport)
 - `cmd/products-api` — a real HTTP server emulating the products API, used as the smoke-test target
+- `infra/catalog/products.json` — the **single shared product catalog** (JSON fixture) served by both the local fixture and the production Lambda layer
 - `smoke-tests/*.hurl` — QA smoke scenarios, run with the `hurl` tool against a real server
 - `docs/dantotsu/` — Dantotsu defect-analysis reports for each fixed OWASP issue
 

@@ -82,6 +82,33 @@ pulumi destroy         # tear everything down
 - IAM role: `lambda.amazonaws.com` trust + `AWSLambdaBasicExecutionRole`
   (CloudWatch Logs write).
 
+## Product catalog
+
+The product catalog is a **single shared JSON fixture** —
+`infra/catalog/products.json` — that is the source of truth for both the
+production Lambda and the local products API fixture
+(`cmd/products-api` in the repo root). Both serve the exact same data, so a
+change to the JSON is reflected everywhere without drift.
+
+- **Production**: `npm run build:layer` zips `catalog/products.json` into
+  `dist/catalog-layer.zip`, which is deployed as a Lambda **layer** mounted
+  read-only at `/opt/catalog/products.json`. The handler loads it at startup
+  and serves it on `GET /products` (mirroring the fixture's wire format,
+  including the French `prix` field).
+- **Local fixture**: `cmd/products-api` reads the same file at startup
+  (`-catalog` flag, `PRODUCTS_CATALOG` env, or the default
+  `infra/catalog/products.json`).
+
+To change the catalog, edit `infra/catalog/products.json` and rebuild:
+
+```sh
+npm run build:layer   # refresh dist/catalog-layer.zip
+```
+
+Smoke scenarios assert against the catalog values, so update
+`smoke-tests/products-catalog.hurl` and `smoke-tests/prod/lambda-catalog.hurl`
+when the product set changes.
+
 ## Outputs
 
 | output            | example value                                              |
