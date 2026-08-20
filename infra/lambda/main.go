@@ -7,12 +7,24 @@
 // The handler is wired to a Lambda Function URL, which delivers the request as
 // an API Gateway v2 (HTTP API) payload-format-2.0 event — the raw HTTP body
 // lives in event.Body, not in the top-level event.
+//
+// Authentication (A01 broken access control):
+//
+// Although the Function URL uses authorizationType "NONE" (so AWS does not
+// enforce IAM SigV4 signing), the handler itself authenticates every request
+// by comparing the x-api-key header against the LAMBDA_API_KEY environment
+// variable (constant-time comparison). Requests without a matching key are
+// rejected with 401 before any business logic runs. The key is injected as a
+// Pulumi config secret at deploy time — it never appears in source.
 package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -33,12 +45,45 @@ type Response struct {
 	Message string `json:"message"`
 }
 
+// logger is initialized in main() so tests can inspect log output via the
+// default handler if needed.
+var logger *slog.Logger
+
+// apiKey is the expected API key, read once from LAMBDA_API_KEY at startup.
+var apiKey string
+
 // handle processes a single Function URL invocation.
-func handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (string, error) {
+//
+// It first authenticates the request via the x-api-key header, then
+// deserializes the JSON body and returns the availability result.
+func handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
+	// --- Authentication (A01) ----------------------------------------------
+
+	// Reject if no API key was configured at deploy time. This is a
+	// deployment misconfiguration, not a caller error — log it and return 500
+	// so the operator notices immediately rather than silently allowing all
+	// traffic through.
+	if apiKey == "" {
+		logger.Error("LAMBDA_API_KEY not set — refusing to serve without authentication")
+		return jsonError(500, "internal server error"), nil
+	}
+
+	provided := event.Headers["x-api-key"]
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(apiKey)) != 1 {
+		logger.Info("unauthorized request",
+			"path", event.RawPath,
+			"method", event.RequestContext.HTTP.Method,
+		)
+		return jsonError(401, "unauthorized"), nil
+	}
+
+	// --- Business logic ----------------------------------------------------
+
 	var req Request
 	if err := json.Unmarshal([]byte(event.Body), &req); err != nil {
-		return "", fmt.Errorf("decode body: %w", err)
+		return jsonError(400, "invalid request body"), nil
 	}
+
 	available := req.Stock > 0
 	resp := Response{
 		OK:      available,
@@ -48,11 +93,29 @@ func handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (string, 
 	}
 	out, err := json.Marshal(resp)
 	if err != nil {
-		return "", fmt.Errorf("encode response: %w", err)
+		logger.Error("encode response failed", "error", err)
+		return jsonError(500, "internal server error"), nil
 	}
-	return string(out), nil
+
+	return events.APIGatewayV2HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		Body:       string(out),
+	}, nil
+}
+
+// jsonError builds a JSON error response with the given status code and message.
+func jsonError(status int, msg string) events.APIGatewayV2HTTPResponse {
+	body, _ := json.Marshal(map[string]string{"error": msg})
+	return events.APIGatewayV2HTTPResponse{
+		StatusCode: status,
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		Body:       string(body),
+	}
 }
 
 func main() {
+	logger = slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	apiKey = os.Getenv("LAMBDA_API_KEY")
 	lambda.Start(handle)
 }
