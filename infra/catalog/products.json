@@ -2,5 +2,17 @@
   {"ref": 1, "description": "vélo électrique", "stock": 10, "prix": 1400},
   {"ref": 2, "description": "balle de tennis", "stock": 1000, "prix": 1.5},
   {"ref": 3, "description": "raquette de tennis", "stock": 0, "prix": 80},
-  {"ref": 4, "description": "ballon de football", "stock": 5, "prix": 25}
+  {"ref": 4, "description": "ballon de football", "stock": 5, "prix": 25},
+  {"ref": 5, "description": "casque de vélo", "stock": 30, "prix": 45.6},
+  {"ref": 6, "description": "montre connectée", "stock": 18, "prix": 149.99},
+  {"ref": 7, "description": "chaussures de course", "stock": 25, "prix": 79},
+  {"ref": 8, "description": "tapis de yoga", "stock": 60, "prix": 35.5},
+  {"ref": 9, "description": "gourde isotherme", "stock": 200, "prix": 12.9},
+  {"ref": 10, "description": "corde à sauter", "stock": 150, "prix": 8.5},
+  {"ref": 11, "description": "haltères 5kg", "stock": 20, "prix": 39.99},
+  {"ref": 12, "description": "ballon de rugby", "stock": 22, "prix": 28},
+  {"ref": 13, "description": "raquette de badminton", "stock": 18, "prix": 54.99},
+  {"ref": 14, "description": "filet de tennis", "stock": 3, "prix": 110},
+  {"ref": 15, "description": "chaussures de randonnée", "stock": 0, "prix": 89.5},
+  {"ref": 16, "description": "sac de sport", "stock": 40, "prix": 34.9}
 ]
