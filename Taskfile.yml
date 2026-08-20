@@ -38,6 +38,8 @@ vars:
   PORT: "18080"
   # API key shared between the local fixture (-api-key) and Hurl (--variable).
   API_KEY: "smoke-test-key"
+  # Shared product catalog JSON (single source of truth for all fixtures).
+  CATALOG: infra/catalog/products.json
   # Local products API fixture binary + runtime files (built once, reused).
   SERVER_BIN: /tmp/products-api-smoke
   SERVER_LOG: /tmp/products-api-smoke.log
@@ -115,7 +117,7 @@ tasks:
           # below would otherwise be satisfied by a leftover process and the
           # recorded PID would not match the server actually answering.
           pkill -f "{{.SERVER_BIN}} -addr 127.0.0.1:{{.PORT}}" 2>/dev/null || true
-          {{.SERVER_BIN}} -addr 127.0.0.1:{{.PORT}} -api-key {{.API_KEY}} > {{.SERVER_LOG}} 2>&1 &
+          {{.SERVER_BIN}} -addr 127.0.0.1:{{.PORT}} -api-key {{.API_KEY}} -catalog {{.CATALOG}} > {{.SERVER_LOG}} 2>&1 &
           echo $! > {{.SERVER_PID}}
           for i in $(seq 1 50); do
             if curl -fsS -H "x-api-key: {{.API_KEY}}" "http://127.0.0.1:{{.PORT}}/products" >/dev/null 2>&1; then

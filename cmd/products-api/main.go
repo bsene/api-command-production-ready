@@ -29,18 +29,17 @@ type product struct {
 	Prix        float64 `json:"prix"`
 }
 
-// catalog is the stable reference catalog served on GET /products. Smoke
-// scenarios assert against these exact values, so do not change it without
-// updating smoke-tests/*.hurl.
-var catalog = []product{
-	{Ref: 1, Description: "vélo électrique", Stock: 10, Prix: 1400},
-	{Ref: 2, Description: "balle de tennis", Stock: 1000, Prix: 1.5},
-	{Ref: 3, Description: "raquette de tennis", Stock: 0, Prix: 80},
-	{Ref: 4, Description: "ballon de football", Stock: 5, Prix: 25},
-}
+// catalog is the reference catalog served on GET /products. It is loaded at
+// startup from the shared catalog JSON (infra/catalog/products.json) so the
+// local fixture and the production Lambda layer serve the exact same data — a
+// single source of truth for all fixtures. Smoke scenarios assert against
+// these values, so do not change the JSON without updating smoke-tests/*.hurl.
+var catalog []product
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18080", "listen address")
+	catalogFlag := flag.String("catalog", "", "path to the catalog JSON file; "+
+		"defaults to the PRODUCTS_CATALOG env var, then to infra/catalog/products.json")
 	apiKey := flag.String("api-key", "", "API key required in the x-api-key header; "+
 		"falls back to the PRODUCTS_API_KEY env var if the flag is empty")
 	allowExternal := flag.Bool("allow-external", false,
@@ -52,6 +51,16 @@ func main() {
 
 	if *apiKey == "" {
 		*apiKey = envOr("PRODUCTS_API_KEY", "")
+	}
+
+	// Load the shared product catalog before serving so a missing/malformed
+	// file fails fast instead of serving an empty catalog.
+	catalogPath := *catalogFlag
+	if catalogPath == "" {
+		catalogPath = envOr("PRODUCTS_CATALOG", "infra/catalog/products.json")
+	}
+	if err := loadCatalog(catalogPath); err != nil {
+		log.Fatalf("products API: load catalog %q: %v", catalogPath, err)
 	}
 	if *apiKey == "" {
 		log.Fatal("products API: -api-key (or PRODUCTS_API_KEY) is required; " +
@@ -114,6 +123,20 @@ func envOr(name, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// loadCatalog reads the shared product catalog JSON (infra/catalog/products.json)
+// into the package-level catalog slice. It is the single source of truth shared
+// with the production Lambda layer, so both fixtures always serve the same data.
+func loadCatalog(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(b, &catalog); err != nil {
+		return fmt.Errorf("parse catalog: %w", err)
+	}
+	return nil
 }
 
 // validateListenAddr rejects non-loopback hosts unless the caller explicitly
