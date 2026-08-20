@@ -32,6 +32,8 @@ version: "3"
 vars:
   # Directory containing the Hurl smoke scenarios.
   SMOKE_DIR: smoke-tests
+  # Production Lambda Function URL (not a secret; the key is via LAMBDA_API_KEY).
+  PROD_URL: https://53t5kzpvzcxwyvhvowljmmx5oy0ulcdo.lambda-url.eu-north-1.on.aws/
   # Port the local products API fixture binds when BASE_URL is not set.
   PORT: "18080"
   # API key shared between the local fixture (-api-key) and Hurl (--variable).
@@ -165,3 +167,57 @@ tasks:
       - |
         n=$(ls {{.SMOKE_DIR}}/*.hurl 2>/dev/null | wc -l | tr -d ' ')
         echo "Smoke scenarios defined: $n"
+  # ------------------------------------------------------------------ smoke:prod
+  smoke:prod:
+    desc: Run production smoke scenarios against the deployed Lambda Function URL.
+    summary: |
+      Sends HTTP requests to the real AWS Lambda Function URL provisioned by
+      infra/src/index.ts. Requires the LAMBDA_API_KEY environment variable
+      (the Pulumi secret) because the handler authenticates every request.
+      This is the post-deploy gate: if these fail, the production endpoint
+      is broken and the full suite should not run.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          if [ -z "${LAMBDA_API_KEY:-}" ]; then
+            echo "LAMBDA_API_KEY environment variable is required to run production smoke tests." >&2
+            exit 1
+          fi
+          hurl --test --max-time 30 --variable base_url="{{.PROD_URL}}" --variable api_key="$LAMBDA_API_KEY" {{.SMOKE_DIR}}/prod/*.hurl
+
+  smoke:prod:list:
+    desc: Run each production smoke scenario individually with a PASS/FAIL summary.
+    summary: |
+      Same contract as smoke:prod, but runs the scenarios one by one so the
+      failing scenario is obvious. Exits non-zero if any scenario fails.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          if [ -z "${LAMBDA_API_KEY:-}" ]; then
+            echo "LAMBDA_API_KEY environment variable is required to run production smoke tests." >&2
+            exit 1
+          fi
+          pass=0
+          fail=0
+          for f in {{.SMOKE_DIR}}/prod/*.hurl; do
+            name=$(basename "$f" .hurl)
+            echo ""
+            echo "────────────────────────────────────────────────────────────"
+            echo "▶ Production scenario $name"
+            echo "────────────────────────────────────────────────────────────"
+            if hurl --test --max-time 30 --variable base_url="{{.PROD_URL}}" --variable api_key="$LAMBDA_API_KEY" "$f"; then
+              echo "✅ PASS  $name"
+              pass=$((pass + 1))
+            else
+              echo "❌ FAIL  $name"
+              fail=$((fail + 1))
+            fi
+          done
+          echo ""
+          echo "Production summary: $pass passed, $fail failed"
+          [ "$fail" -eq 0 ]
+
+  smoke:prod:url:
+    desc: Show the production Lambda Function URL used by smoke:prod.
+    cmds:
+      - echo "{{.PROD_URL}}"
