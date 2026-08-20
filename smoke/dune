@@ -1,0 +1,3 @@
+(executable
+ (name client_smoke)
+ (libraries apicommand lwt.unix))
