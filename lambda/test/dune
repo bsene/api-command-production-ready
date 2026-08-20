@@ -1,5 +1,12 @@
 (test
  (name lambda_test)
+ (modules lambda_test)
  (libraries lambda_lib apicommand alcotest yojson base64)
  (preprocess (pps ppx_deriving_yojson))
  (deps ../../infra/catalog/products.json))
+
+(test
+ (name loop_test)
+ (modules loop_test)
+ (libraries lambda_lib apicommand alcotest dream yojson lwt)
+ (preprocess (pps lwt_ppx)))
