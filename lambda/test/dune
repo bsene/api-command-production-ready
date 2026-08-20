@@ -1,0 +1,5 @@
+(test
+ (name lambda_test)
+ (libraries lambda_lib apicommand alcotest yojson base64)
+ (preprocess (pps ppx_deriving_yojson))
+ (deps ../../infra/catalog/products.json))

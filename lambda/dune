@@ -1,0 +1,5 @@
+(library
+ (name lambda_lib)
+ (modules event lambda_handler)
+ (libraries apicommand yojson base64)
+ (preprocess (pps ppx_deriving_yojson)))
