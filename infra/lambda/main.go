@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 
@@ -103,6 +104,16 @@ func handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 			"method", event.RequestContext.HTTP.Method,
 		)
 		return jsonError(401, "unauthorized"), nil
+	}
+
+	// --- GET /products: serve the product catalog ---------------------------
+
+	// The reference catalog loaded from the Lambda layer (infra/catalog/products.json)
+	// is served on GET /products, mirroring the local fixture. This makes the
+	// catalog a real, reachable production endpoint rather than loader groundwork.
+	if event.RequestContext.HTTP.Method == http.MethodGet &&
+		strings.Trim(event.RawPath, "/") == "products" {
+		return serveCatalog(), nil
 	}
 
 	// --- Business logic ----------------------------------------------------
@@ -203,4 +214,24 @@ func loadCatalog() {
 		return
 	}
 	logger.Info("catalog loaded", "path", p, "count", len(catalog))
+}
+
+// serveCatalog builds the JSON response for GET /products from the loaded
+// catalog slice. It returns an empty list (rather than null) when the layer was
+// not loaded, so consumers always get an array-shaped body.
+func serveCatalog() events.APIGatewayV2HTTPResponse {
+	out := catalog
+	if out == nil {
+		out = []catalogProduct{}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		logger.Error("encode catalog failed", "error", err)
+		return jsonError(500, "internal server error")
+	}
+	return events.APIGatewayV2HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		Body:       string(b),
+	}
 }
