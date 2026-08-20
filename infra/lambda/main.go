@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -79,6 +80,14 @@ func handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 
 	// --- Business logic ----------------------------------------------------
 
+	// Guard: a GET request or a bodyless POST delivers an empty event.Body.
+	// json.Unmarshal("") returns "unexpected end of JSON input", which is a
+	// confusing 400 message. Return a clearer error so the caller knows they
+	// must send a JSON body.
+	if strings.TrimSpace(event.Body) == "" {
+		return jsonError(400, "missing request body"), nil
+	}
+
 	var req Request
 	if err := json.Unmarshal([]byte(event.Body), &req); err != nil {
 		return jsonError(400, "invalid request body"), nil
@@ -86,8 +95,8 @@ func handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 
 	available := req.Stock > 0
 	resp := Response{
-		OK:      available,
-		Ref:     req.Ref,
+		OK:  available,
+		Ref: req.Ref,
 		Message: fmt.Sprintf("ref=%d description=%q stock=%d price=%.2f -> available=%v",
 			req.Ref, req.Description, req.Stock, req.Price, available),
 	}
