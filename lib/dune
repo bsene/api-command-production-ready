@@ -1,4 +1,5 @@
 (library
  (name apicommand)
- (libraries yojson ppx_deriving_yojson lwt lwt.unix ipaddr uri)
+ (libraries yojson ppx_deriving_yojson lwt lwt.unix ipaddr ipaddr.unix uri
+   cohttp-lwt-unix conduit-lwt-unix)
  (preprocess (pps ppx_deriving_yojson)))
