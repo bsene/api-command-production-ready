@@ -3,3 +3,5 @@ bin/
 # Pulumi local-backend state (do not commit stack state/secrets)
 .pulumi/
 dist/
+# Go build artifact from manual `go build` in lambda/
+lambda/lambda
