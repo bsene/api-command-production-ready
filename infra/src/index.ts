@@ -88,4 +88,10 @@ export const lambdaName = fn.name;
 export const lambdaArn = fn.arn;
 export const lambdaRoleArn = lambdaRole.arn;
 export const runtime = pulumi.output("provided.al2023");
-export const region = pulumi.output(awsRegion);
+// Derived from the deployed Lambda's ARN, not the config string, so the
+// output reflects where the function actually lives — config-vs-reality drift
+// surfaces as a mismatch between `aws:region` and this value.
+export const region = fn.arn.apply((arn) => {
+  // arn:aws:lambda:<region>:<acct>:function:<name>
+  return String(arn).split(":")[3];
+});

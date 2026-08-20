@@ -29,7 +29,7 @@ export AWS_PROFILE=default
 
 | key           | value     | meaning                          |
 |---------------|-----------|----------------------------------|
-| `aws:region`  | us-east-1 | AWS region for resources         |
+| `aws:region`  | eu-north-1 | AWS region for resources         |
 | `aws:profile` | default   | AWS credentials profile to use    |
 
 ```sh
@@ -90,7 +90,7 @@ pulumi destroy         # tear everything down
 | `lambdaArn`     | (resolved after `pulumi up`)     |
 | `lambdaRoleArn` | (resolved after `pulumi up`)     |
 | `runtime`       | `provided.al2023`                |
-| `region`        | `us-east-1`                      |
+| `region`        | `eu-north-1` (parsed from `lambdaArn`) |
 
 ## Notes
 
