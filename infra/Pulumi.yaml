@@ -1,0 +1,9 @@
+name: api-command-infra
+description: Pulumi AWS project for api-command (local backend)
+main: src/index.ts
+runtime:
+  name: nodejs
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: aws-typescript
