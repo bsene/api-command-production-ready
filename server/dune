@@ -1,3 +1,10 @@
 (library
  (name server_lib)
+ (modules cli catalog server)
  (libraries apicommand cmdliner fmt dream unix))
+
+(executable
+ (name main)
+ (public_name products-api)
+ (modules main)
+ (libraries server_lib apicommand cmdliner fmt dream unix))
