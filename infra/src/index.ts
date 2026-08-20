@@ -98,6 +98,40 @@ const fnUrl = new aws.lambda.FunctionUrl(
   { provider, dependsOn: [fn] },
 );
 
+// Resource-based policy: with authorizationType "NONE" the function URL is
+// public only if the function grants lambda:InvokeFunctionUrl to everyone.
+// Without this, AWS denies unauthenticated invocations (the console warning).
+const fnUrlPermission = new aws.lambda.Permission(
+  "api-command-fn-url-perm",
+  {
+    action: "lambda:InvokeFunctionUrl",
+    function: fn.name,
+    principal: "*",
+    // functionUrlAuthType sets the lambda:FunctionUrlAuthType == NONE
+    // condition, which AWS requires when granting InvokeFunctionUrl to "*".
+    // No sourceArn: the invocation's SourceArn is the Function URL ARN
+    // (...:function:<name>:url), which differs from the function ARN — pinning
+    // it here would deny every unauthenticated call.
+    functionUrlAuthType: "NONE",
+  },
+  { provider, dependsOn: [fnUrl] },
+);
+
+// Additional permission required since Oct 2025 for Function URLs:
+// AWS now requires both lambda:InvokeFunctionUrl AND lambda:InvokeFunction
+// in the resource policy for unauthenticated Function URL invocations.
+// Pulumi v6 does not expose `invokedViaFunctionUrl`, so we grant the plain
+// InvokeFunction action to '*' (dev-only; use AWS_IAM auth in production).
+const fnInvokePermission = new aws.lambda.Permission(
+  "api-command-fn-invoke-perm",
+  {
+    action: "lambda:InvokeFunction",
+    function: fn.name,
+    principal: "*",
+  },
+  { provider, dependsOn: [fnUrl] },
+);
+
 // --- Outputs -----------------------------------------------------------------
 
 export const lambdaName = fn.name;
