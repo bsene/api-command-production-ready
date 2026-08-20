@@ -1,0 +1,99 @@
+# api-command-infra (Pulumi AWS, local backend, custom Go Lambda)
+
+Infrastructure-as-code for the `api-command` project, managed with
+[Pulumi](https://www.pulumi.com/) using the **local backend** (file-based state
+under `~/.pulumi`, no Pulumi Cloud account) and a **custom Go Lambda function**
+on the `provided.al2023` custom runtime (a `bootstrap` binary, linux/arm64).
+
+## Prerequisites
+
+- Pulumi CLI (`pulumi version` >= 3.x)
+- Node.js >= 20
+- Go >= 1.21 (for the Lambda handler build)
+- AWS credentials via a named profile in `~/.aws/credentials`
+
+## Local backend
+
+State and stack metadata are stored on disk under `~/.pulumi` (not in this
+repo). The local backend encrypts config secrets with a passphrase, so every
+Pulumi command needs `PULUMI_CONFIG_PASSPHRASE`:
+
+```sh
+export PULUMI_CONFIG_PASSPHRASE="api-command-local-dev"
+export AWS_PROFILE=default
+```
+
+(Add these to your shell rc or a local, un-committed `.env`.)
+
+## Stack configuration (`Pulumi.dev.yaml`)
+
+| key           | value     | meaning                          |
+|---------------|-----------|----------------------------------|
+| `aws:region`  | us-east-1 | AWS region for resources         |
+| `aws:profile` | default   | AWS credentials profile to use    |
+
+```sh
+pulumi config set aws:region eu-west-1
+pulumi config set aws:profile perso
+```
+
+## The custom Go Lambda
+
+The Lambda runs on the **`provided.al2023` custom runtime**: AWS executes a
+binary named `bootstrap` from the deployment package. The handler is a
+standalone Go module under `lambda/` (its own `go.mod`, so the kata's root
+module is untouched) using `github.com/aws/aws-lambda-go`.
+
+```
+infra/
+  lambda/             # separate Go module (api-command/lambda)
+    go.mod            # requires github.com/aws/aws-lambda-go
+    main.go           # handler: receives a Request, returns a Response
+  dist/               # build output (gitignored)
+    bootstrap         # GOOS=linux GOARCH=arm64 binary
+    lambda.zip        # zipped bootstrap -> Lambda code package
+  src/index.ts        # Pulumi program: IAM role + aws.lambda.Function
+  ...
+```
+
+### Build
+
+The npm script cross-compiles the handler and zips it as `bootstrap`:
+
+```sh
+npm run build:lambda   # -> dist/lambda.zip
+```
+
+This is wired into `preview`/`up`, so you normally just run:
+
+```sh
+npm install            # first time only
+pulumi preview         # builds the zip, then dry-runs
+pulumi up              # builds the zip, then applies
+pulumi destroy         # tear everything down
+```
+
+### Runtime details
+
+- `runtime: "provided.al2023"` — AWS-provided OS-only runtime; the `bootstrap`
+  binary implements the Lambda Runtime API (driven here by `aws-lambda-go`).
+- `architectures: ["arm64"]` — Graviton, built with `GOARCH=arm64`.
+- `handler: "bootstrap"` — required entry name on the custom runtime.
+- IAM role: `lambda.amazonaws.com` trust + `AWSLambdaBasicExecutionRole`
+  (CloudWatch Logs write).
+
+## Outputs
+
+| output          | example value                    |
+|-----------------|----------------------------------|
+| `lambdaName`    | `api-command-infra-dev-fn`       |
+| `lambdaArn`     | (resolved after `pulumi up`)     |
+| `lambdaRoleArn` | (resolved after `pulumi up`)     |
+| `runtime`       | `provided.al2023`                |
+| `region`        | `us-east-1`                      |
+
+## Notes
+
+- `lambda/main.go` is a minimal placeholder handler — replace it with the real
+  api-command logic (it can import the kata package, or stay standalone).
+- Never commit `~/.pulumi` state, the passphrase, or `dist/`.
