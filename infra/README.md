@@ -97,16 +97,29 @@ pulumi destroy         # tear everything down
 ## Function URL
 
 The Lambda has a **Function URL**: a dedicated HTTPS endpoint AWS provisions
-for the function (no API Gateway). It uses `authorizationType: "NONE"`, so it
-is public and curl-testable for this dev kata — anyone with the URL can invoke
-it. Switch to `AWS_IAM` in `src/index.ts` if the handler ever carries real
-logic.
+for the function (no API Gateway). It uses `authorizationType: "NONE"`, meaning
+AWS does not enforce IAM SigV4 signing at the edge — but **the handler
+authenticates every request** by comparing the `x-api-key` header against the
+`LAMBDA_API_KEY` environment variable (constant-time comparison). Requests
+without a matching key are rejected with `401` before any business logic runs.
+
+### Setting the API key
+
+The key is stored as a Pulumi secret (encrypted in state, never in source):
+
+```sh
+pulumi config set --secret lambdaApiKey "your-secret-key"
+```
+
+If the key is not configured, the handler returns `500` and refuses to serve —
+**fail-closed, not fail-open**.
 
 A Function URL is only actually public if the function's resource-based policy
 grants `lambda:InvokeFunctionUrl` to `*` (with the `FunctionUrlAuthType == NONE`
 condition) — `src/index.ts` provisions that via `aws.lambda.Permission`, plus a
 second permission for `lambda:InvokeFunction` (required since Oct 2025 for
-unauthenticated Function URL invocations).
+unauthenticated Function URL invocations). The handler-level `x-api-key` check
+is what actually gates access (A01 broken access control).
 
 Function URLs deliver requests as **API Gateway v2 (HTTP API) payload-format-2.0
 events**, so the handler reads the HTTP body from `event.Body` (see
@@ -117,12 +130,25 @@ Invoke it directly:
 ```sh
 curl -X POST "$(pulumi stack output functionUrl)" \
   -H 'Content-Type: application/json' \
+  -H 'x-api-key: your-secret-key' \
   -d '{"ref":1,"description":"ball","stock":3,"price":9.9}'
 # -> {"ok":true,"ref":1,"message":"ref=1 description=\"ball\" stock=3 price=9.90 -> available=true"}
 ```
 
+Without the `x-api-key` header (or with the wrong key):
+
+```sh
+curl -X POST "$(pulumi stack output functionUrl)" \
+  -H 'Content-Type: application/json' \
+  -d '{"ref":1,"description":"ball","stock":3,"price":9.9}'
+# -> {"error":"unauthorized"}   (HTTP 401)
+```
+
 ## Notes
 
-- `lambda/main.go` is a minimal placeholder handler — replace it with the real
-  api-command logic (it can import the kata package, or stay standalone).
+- `lambda/main.go` authenticates every request via the `x-api-key` header
+  (A01). Replace the placeholder business logic with the real api-command
+  logic — the auth check stays as the first gate.
+- The API key is a Pulumi config secret (`lambdaApiKey`). Set it before
+  `pulumi up` or the handler will refuse to serve.
 - Never commit `~/.pulumi` state, the passphrase, or `dist/`.
