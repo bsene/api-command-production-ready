@@ -136,6 +136,18 @@ startup), and the function's concurrency is bounded so a flood cannot starve
 other functions or drive unbounded cost. CloudFront + WAF rate-based rules
 remain the deferred full-edge option for per-caller throttling.
 
+### Residual risk accepted
+
+The two remaining M1 gaps are accepted for the prototype rather than built:
+
+- **No WAF/CloudFront edge throttle** — reserved concurrency (default 5) already
+  bounds cost-DoS and concurrency exhaustion, so no edge layer is added.
+- **No per-IP brute-force lockout/backoff** — the ≥32-byte (256-bit) key makes
+  brute-force computationally infeasible, so a lockout/backoff is unnecessary.
+
+CloudFront + WAF rate-based rules remain the deferred full-edge option if the
+endpoint is ever promoted beyond a prototype.
+
 ---
 
 ## Eradication

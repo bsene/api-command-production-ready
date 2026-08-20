@@ -58,3 +58,11 @@
 - [ ] If a new OWASP-relevant defect is found and fixed, add a Dantotsu report
       under `docs/dantotsu/` using `_template.md` and link it from the README
       defect table.
+
+## 6. Public endpoints (AWS / infra)
+
+- [ ] Any new public endpoint (Lambda Function URL, API Gateway, ALB, …) MUST
+      bound resource consumption — reserved concurrency, a rate limit, or WAF —
+      and MUST enforce a minimum API-key strength (≥32 bytes / 256-bit) at
+      deploy time, failing closed at runtime if the key is missing or too short.
+
