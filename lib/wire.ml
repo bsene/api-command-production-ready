@@ -19,9 +19,21 @@ let of_product (p : Product.product) : product_wire =
   { ref = p.Product.ref; description = p.Product.description;
     stock = p.Product.stock; price = p.Product.price }
 
+(* Render integral floats as JSON integers (e.g. [1400] not [1400.0]) so the
+   catalog bytes match Go's [encoding/json] output exactly — load-bearing for
+   the Hurl [jsonpath "$[0].prix" == 1400] assertions and the byte-equal
+   Lambda-message check (risk #4). Non-integral prices keep their decimal
+   form ([1.5], [34.9]). *)
+let rec compact_floats = function
+  | `Float f when Float.is_integer f -> `Int (int_of_float f)
+  | `Assoc kvs -> `Assoc (List.map (fun (k, v) -> (k, compact_floats v)) kvs)
+  | `List xs -> `List (List.map compact_floats xs)
+  | other -> other
+
 let encode_products ps =
   ps |> List.map of_product |> List.map product_wire_to_yojson
   |> (fun xs -> `List xs)
+  |> compact_floats
   |> Yojson.Safe.to_string
 
 let decode_products s =
