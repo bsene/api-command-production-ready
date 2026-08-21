@@ -20,7 +20,43 @@ type t = { buf : Buffer.t; out : out_channel option }
 let create ?out () = { buf = Buffer.create 512; out }
 let contents t = Buffer.contents t.buf
 
-let value_str = function S s -> s | I n -> string_of_int n | F f -> string_of_float f
+(* True when s contains a character that could break the `k=v` line format or
+   inject a fake field — in which case we quote+escape the value. Clean
+   strings (URLs, hostnames, refs without spaces) stay bare to match the
+   slog text-handler format the tests assert on. *)
+let needs_quoting s =
+  let n = String.length s in
+  let rec go i =
+    if i >= n then false
+    else match String.unsafe_get s i with
+    | ' ' | '=' | '"' | '\\' | '\n' | '\r' | '\t' -> true
+    | c when Char.code c < 0x20 -> true
+    | _ -> go (i + 1)
+  in
+  go 0
+
+let escape_string s =
+  if not (needs_quoting s) then s
+  else begin
+    let b = Buffer.create (String.length s + 2) in
+    Buffer.add_char b '"';
+    String.iter (fun c ->
+      (match c with
+       | '"' -> Buffer.add_string b "\\\""
+       | '\\' -> Buffer.add_string b "\\\\"
+       | '\n' -> Buffer.add_string b "\\n"
+       | '\r' -> Buffer.add_string b "\\r"
+       | '\t' -> Buffer.add_string b "\\t"
+       | c when Char.code c < 0x20 -> Buffer.add_string b (Printf.sprintf "\\x%02x" (Char.code c))
+       | c -> Buffer.add_char b c)) s;
+    Buffer.add_char b '"';
+    Buffer.contents b
+  end
+
+let value_str = function
+  | S s -> escape_string s
+  | I n -> string_of_int n
+  | F f -> string_of_float f
 
 let level_str = function `Info -> "INFO" | `Warn -> "WARN" | `Error -> "ERROR"
 
