@@ -47,8 +47,10 @@ The Go handler accepted arbitrary `Description` (no length cap) and unvalidated 
 ### LOW — L3: Base64-encoded bodies — **Resolved by the OCaml port**
 The Go handler used `event.Body` directly with `json.Unmarshal`, ignoring `IsBase64Encoded`. The OCaml port decodes base64 first when `is_base64_encoded` is set (`decode_body`, `lambda/lambda_handler.ml:75-83`), returning 400 only on invalid base64 — closing the correctness gap.
 
-### INFO — I1: Logs reflect untrusted `raw_path`
-The unauthorized-request log includes `raw_path` and `method` (`lambda/lambda_handler.ml:111-112`). The `Log` module (`lib/log.ml`) does NOT escape values — unlike Go's `slog` JSON handler — so a crafted path could inject log fields. Attacker-controlled path will appear in CloudWatch; low impact for this prototype, but consider escaping in `Log.log`.
+### INFO — I1: Logs reflect untrusted `raw_path` — **Resolved**
+The unauthorized-request log includes `raw_path` and `method` (`lambda/lambda_handler.ml:111-112`). The `Log` module (`lib/log.ml`) did NOT escape values — unlike Go's `slog` JSON handler — so a crafted path could inject log fields. Attacker-controlled path would appear in CloudWatch.
+
+**Fix (commit pending):** `lib/log.ml` now conditionally quotes+escapes string values containing injection characters (space, `=`, `"`, `\`, control chars) via `escape_string`/`needs_quoting`, so a crafted `raw_path` cannot inject a fake `level=`/`msg=` field. Clean values (URLs, hostnames, refs) stay bare to preserve the slog text-handler format. Regression covered by `injection_test` in `lib/test/log_test.ml`.
 
 ### INFO — I2: `json_error` discards marshal error
 `lambda/event.ml:62-66` ignores the error from `Yojson.Safe.to_string` of a fixed record (which cannot fail in practice). Harmless; noting only.
@@ -62,7 +64,7 @@ The unauthorized-request log includes `raw_path` and `method` (`lambda/lambda_ha
 | L1 | Low | infra | Key in env var, no rotation path, retrievable by privileged callers |
 | L2 | Low | handler | Resolved by OCaml port: description ≤1 KiB, price/ref ≥ 0 (400 on violation) |
 | L3 | Low | handler | Resolved by OCaml port: base64 bodies decoded before parsing |
-| I1 | Info | handler | Untrusted raw_path written to logs (Log module does not escape) |
+| I1 | Info | handler | Resolved: Log module escapes string values; crafted raw_path cannot inject log fields |
 | I2 | Info | handler | `json_error` ignores marshal error (cannot fail) |
 
 ## Verification (no changes made)
@@ -76,4 +78,5 @@ No code was modified by this review. To confirm the review reflects current code
 Priority order if fixes are requested:
 1. M2 — scope the `*` `InvokeFunction` grant to URL-sourced calls.
 2. L1 — Secrets Manager / SSM rotation path.
-3. I1 — escape values in the `Log` module (`lib/log.ml`) to prevent log-field injection.
+
+(I1 — escape values in the `Log` module — is now **Resolved**.)
