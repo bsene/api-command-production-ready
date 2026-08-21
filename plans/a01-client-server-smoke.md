@@ -21,7 +21,7 @@ implementations are `Stub_backend` (hard-errors if called) and the test-only
 
 ## Decisions (confirmed)
 
-1. **Form** — a standalone `smoke/client_smoke.exe` run by a new `smoke:client`
+1. **Form** — a standalone `integration/client_smoke.exe` run by a new `integration:client`
    Taskfile task, folded into `task smoke` (mirrors the Hurl pattern; keeps the
    live-server test out of the mock-only `dune runtest`).
 2. **SSRF scope** — full SSRF-safe transport: resolve hostnames, check every
@@ -82,7 +82,7 @@ is already linked into the Lambda bootstrap via `lambda_lib`, so `apicommand`
 gains no new transitive dep the bootstrap doesn't already carry. Verify with
 `dune build` + the Docker cross-compile still succeeding.
 
-### 3. `smoke/client_smoke.ml` + `smoke/dune` (new) — the smoke executable
+### 3. `integration/client_smoke.ml` + `integration/dune` (new) — the smoke executable
 
 A standalone executable (not an Alcotest suite) that:
 
@@ -106,25 +106,25 @@ A standalone executable (not an Alcotest suite) that:
 Plain assertions + `exit 1` (smoke philosophy: fail fast, clear output), not
 Alcotest — this is a live-server gate, not a unit test.
 
-`smoke/dune`:
+`integration/dune`:
 ```
 (executable
  (name client_smoke)
  (libraries apicommand lwt.unix))
 ```
 
-### 4. `Taskfile.yml` — wire `smoke:client` into the gate
+### 4. `Taskfile.yml` — wire `integration:client` into the gate
 
 New task:
 ```yaml
-smoke:client:
+integration:client:
   desc: Run the OCaml Orders_manager client against the live fixture.
   cmds:
     - cmd: |
         set -euo pipefail
-        dune build smoke/client_smoke.exe
+        dune build integration/client_smoke.exe
         base_url="${BASE_URL:-http://127.0.0.1:{{.PORT}}}"
-        _build/default/smoke/client_smoke.exe --base-url "$base_url" --api-key "{{.API_KEY}}"
+        _build/default/integration/client_smoke.exe --base-url "$base_url" --api-key "{{.API_KEY}}"
 ```
 
 Fold into `smoke` (after `task smoke:run`):
@@ -136,10 +136,10 @@ smoke:
         task smoke:server:start
         trap 'task smoke:server:stop >/dev/null 2>&1 || true' EXIT
         task smoke:run
-        task smoke:client
+        task integration:client
 ```
 
-`smoke:client` reuses the already-booted fixture (no second boot). When
+`integration:client` reuses the already-booted fixture (no second boot). When
 `BASE_URL` is set, `smoke:server:start` is a no-op and the client targets the
 external server — same semantics as the Hurl path.
 
@@ -148,14 +148,14 @@ external server — same semantics as the Hurl path.
 - `README.md` — add the client smoke path to the "Smoke tests" section; note the
   client↔server auth contract is now exercised end-to-end.
 - `AGENTS.md` — mention `lib/cohttp_backend.ml` as the production backend and
-  `smoke/client_smoke.exe` as the client-side smoke gate.
+  `integration/client_smoke.exe` as the client-side smoke gate.
 - `docs/dantotsu/A01-client-api-key-auth.md` — mark the "Prevention Strategy"
   item as implemented (link the new smoke task).
 
 ## Files
 
 - **New:** `lib/cohttp_backend.ml`, `lib/cohttp_backend.mli`,
-  `smoke/client_smoke.ml`, `smoke/dune`.
+  `integration/client_smoke.ml`, `integration/dune`.
 - **Edit:** `lib/dune`, `Taskfile.yml`, `README.md`, `AGENTS.md`,
   `docs/dantotsu/A01-client-api-key-auth.md`.
 
@@ -164,13 +164,13 @@ external server — same semantics as the Hurl path.
 1. `dune build` — `apicommand` now links `cohttp-lwt-unix`; no openssl pulled in.
 2. `dune runtest` — existing Alcotest suites still pass (no behavior change to
    the mock-tested client logic).
-3. `task smoke:client` — boots the fixture, runs the client, exits 0.
+3. `task integration:client` — boots the fixture, runs the client, exits 0.
 4. `task smoke` — Hurl scenarios **and** the client smoke both pass (the gate).
-5. `task smoke:list` — still lists Hurl scenarios; `smoke:client` is a separate
+5. `task smoke:list` — still lists Hurl scenarios; `integration:client` is a separate
    gate (documented).
 6. `cd infra && npm run build:lambda` — Docker cross-compile still succeeds
    (confirms `apicommand`'s new deps don't break the bootstrap).
-7. Negative check: run `smoke:client` with a wrong `--api-key` → exits non-zero
+7. Negative check: run `integration:client` with a wrong `--api-key` → exits non-zero
    (proves the A01 regression is actually caught).
 
 ## Out of scope

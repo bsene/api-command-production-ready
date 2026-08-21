@@ -68,18 +68,18 @@ tasks:
 
   # ------------------------------------------------------------------ smoke
   smoke:
-    desc: Run ALL smoke scenarios with Hurl against a real server.
+    desc: Run ALL smoke scenarios with Hurl plus the client integration test.
     summary: |
       Boots the products API fixture (or uses BASE_URL), then runs every
-      smoke-tests/*.hurl scenario with `hurl --test`. Use this as the gate
-      before sign-off.
+      smoke-tests/*.hurl scenario with `hurl --test` and the OCaml client
+      integration test. Use this as the gate before sign-off.
     cmds:
       - cmd: |
           set -euo pipefail
           task smoke:server:start
           trap 'task smoke:server:stop >/dev/null 2>&1 || true' EXIT
           task smoke:run
-          task smoke:client
+          task integration:client
 
   smoke:list:
     desc: Run each smoke scenario individually and print a PASS/FAIL summary.
@@ -172,19 +172,20 @@ tasks:
           base_url="${BASE_URL:-http://127.0.0.1:{{.PORT}}}"
           hurl --test --max-time 10 --variable base_url="$base_url" --variable api_key="{{.API_KEY}}" {{.SMOKE_DIR}}/*.hurl
 
-  # ------------------------------------------------------------- smoke:client
-  smoke:client:
+  # ------------------------------------------------------------- integration:client
+  integration:client:
     desc: Run the OCaml Orders_manager client against the live fixture.
     summary: |
-      Builds smoke/client_smoke.exe and drives the real Orders_manager client
-      (via the SSRF-safe Cohttp_backend) against the already-booted fixture,
-      asserting the catalog contract and the A01 client↔server auth gate.
+      Builds integration/client_smoke.exe and drives the real Orders_manager
+      client (via the SSRF-safe Cohttp_backend) against the already-booted
+      fixture, asserting the catalog contract and the A01 client↔server auth
+      gate.
     cmds:
       - cmd: |
           set -euo pipefail
-          dune build smoke/client_smoke.exe
+          dune build integration/client_smoke.exe
           base_url="${BASE_URL:-http://127.0.0.1:{{.PORT}}}"
-          _build/default/smoke/client_smoke.exe --base-url "$base_url" --api-key "{{.API_KEY}}"
+          _build/default/integration/client_smoke.exe --base-url "$base_url" --api-key "{{.API_KEY}}"
 
   # ------------------------------------------------------------------ support
   smoke:vet:

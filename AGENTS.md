@@ -15,8 +15,8 @@
 
 - `dune build` — build the OCaml workspace (lib + server + lambda)
 - `dune runtest` — run all Alcotest suites (also `task smoke:vet`)
-- `task smoke` — boot the fixture, run every Hurl scenario + the client smoke (the sign-off gate)
-- `task smoke:client` — run only the OCaml client smoke against a running fixture
+- `task smoke` — boot the fixture, run every Hurl scenario + the client integration test (the sign-off gate)
+- `task integration:client` — run only the OCaml client integration test against a running fixture
 - `task smoke:list` — per-scenario PASS/FAIL summary; `task smoke:count` — scenario count
 - `task` — list all tasks
 - Infra: `cd infra && npm run build:lambda` (build `dist/lambda.zip`), `npm run preview` / `npm run up` (Pulumi)

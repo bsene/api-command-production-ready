@@ -141,12 +141,13 @@ automatically. No other outbound HTTP call sites exist in the codebase.
 
 - Document the client↔server auth contract in the `OrdersManager` docstring:
   "When the products API enforces authentication, pass `WithAPIKey`."
-- ✅ **Implemented** — Add a CI check (or smoke-test scenario) that boots the
-  authenticated fixture and calls `OrdersManager` against it end-to-end,
-  failing if any method returns 401. Delivered as `smoke/client_smoke.exe`
-  (driven by `task smoke:client`, folded into `task smoke`), which builds the
-  real SSRF-safe `Cohttp_backend` and asserts that a manager with the wrong
-  `x-api-key` fails while one with the right key succeeds.
+- ✅ **Implemented** — Add a CI check (or integration-test scenario) that
+  boots the authenticated fixture and calls `OrdersManager` against it
+  end-to-end, failing if any method returns 401. Delivered as
+  `integration/client_smoke.exe` (driven by `task integration:client`, folded
+  into `task smoke`), which builds the real SSRF-safe `Cohttp_backend` and
+  asserts that a manager with the wrong `x-api-key` fails while one with the
+  right key succeeds.
 
 ### Weak Point History
 
