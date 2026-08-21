@@ -18,7 +18,7 @@ taking down all in-flight requests).
 | 🟢 **Project**          | `api-command-kata`                                     |
 | 🟢 **Detection Stage**  | `B — Security audit (OWASP Top 10 review)`             |
 | 🟢 **Startup**          | `bsene`                                                |
-| 🟢 **Status**           | `Fixed`                                                |
+| 🟢 **Status**           | `Fixed` — constant present and enforced by middleware  |
 | 🔵 **Weak point**       | `server/server.ml — HTTP server config`               |
 | 🟢 **Owner**            | `birrame.sene`                                         |
 | 🟢 **napta_project_id** | `api-command`                                          |
@@ -120,40 +120,55 @@ reviewer checklist.
 
 ### Changes Made
 
-1. **MaxHeaderBytes**: Set `MaxHeaderBytes: 1 << 20` (1 MiB) on the
-   `http.Server`. This limits total request header size, preventing memory
-   exhaustion from oversized headers while leaving ample room for legitimate
-   requests (the API key, content-type, etc. are well under 1 KB).
+1. **MaxHeaderBytes**: Set `max_header_bytes = 1 << 20` (1 MiB) in
+   `server/server.ml` and added `enforce_max_header_bytes` middleware. Dream
+   has no built-in per-server header-size cap, so the middleware measures the
+   parsed header set plus the HTTP/1.1 request line and rejects requests whose
+   total header bytes exceed 1 MiB with `431 Request Header Fields Too Large`.
+   This prevents memory exhaustion from oversized headers while leaving ample
+   room for legitimate requests (the API key, content-type, etc. are well under
+   1 KB).
 
-2. **Panic recovery middleware**: Added `recoveryMiddleware(logger)` to the
-   middleware chain. It wraps `next.ServeHTTP` in a `defer func() { if rec :=
-   recover(); rec != nil { ... } }()` that:
-   - Logs the panic with method, path, remote address, and the recovered
-     value via `slog.Error`.
+2. **Panic recovery middleware**: Added `recover logger` middleware using
+   `Lwt.catch`. It catches exceptions/rejections from the downstream handler and:
+   - Logs the panic with method, path, remote address, and the exception text
+     via the structured logger.
    - Writes a clean `500 Internal Server Error` response.
-   - Does NOT re-panic (the process stays alive).
+   - Does NOT re-raise the exception (the request promise resolves cleanly so
+     the process stays alive).
 
 3. **Middleware ordering**: The chain is now
-   `requestLogger → recoveryMiddleware → securityHeaders → apiKeyAuth → mux`.
-   Recovery wraps everything downstream so panics from auth, headers, or the
-   handler are all caught and logged.
+   `request_logger → recover → enforce_max_header_bytes → security_headers →
+   api_key_auth → router`. Recovery wraps everything downstream so panics from
+   the size gate, auth, headers, or the handler are all caught and logged.
+   Security headers wrap the 431 produced by the size gate, just as they wrap
+   the 401 from auth and the 500 from recovery.
 
 4. **Tests**:
    - `TestRecoveryMiddleware_recoversPanic` — handler panics, middleware
      returns 500.
    - `TestRecoveryMiddleware_passesThroughWhenNoPanic` — no panic, normal
      response.
-   - `TestServerConfig_hasMaxHeaderBytes` — verifies MaxHeaderBytes is
-     non-zero.
+   - `TestServerConfig_hasMaxHeaderBytes` — verifies `max_header_bytes` is set
+     to `1 << 20`.
+   - `TestMaxHeaderBytes_rejectsOversizedHeaders` — in-process Dream request
+     with a header larger than 1 MiB is rejected with 431.
+   - `TestMaxHeaderBytes_allowsNormalHeaders` — ordinary header set passes
+     through with 200.
+   - `TestIntegration_maxHeaderBytesWiredInApp` — the full production
+     `Server.app` handler also rejects oversized headers with 431, confirming
+     the middleware is wired into the deployed chain.
 
 ### Result
 
-- Oversized headers (>1 MiB) are rejected by the Go HTTP server before
-  reaching any handler.
+- Oversized headers (>1 MiB) are rejected by the `enforce_max_header_bytes`
+  middleware with `431 Request Header Fields Too Large` before reaching any
+  handler or downstream middleware.
 - A panic in any handler or middleware is caught, logged with context, and
   returns a clean 500 — the process survives and other requests continue.
 - Security headers are still set on 500 responses (recovery middleware is
-  inside the security headers middleware in the chain).
+  inside the security headers middleware in the chain) and on the 431 response
+  produced by the size gate.
 
 ---
 
@@ -166,17 +181,19 @@ The `server/` server is the only HTTP server in the codebase. The
 
 ### Prevention Strategy
 
-- Create a server-hardening checklist (or Go struct tag) that must be
-  verified for every `http.Server`:
-  `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout`,
-  `MaxHeaderBytes`, panic recovery middleware.
-- Add a lint rule or code review checklist item: "Every `http.Server{}` must
-  set `MaxHeaderBytes` to a non-zero value."
+- Create a server-hardening checklist that must be verified for every HTTP
+  server: timeouts (read/header/write/idle), a header-size cap equivalent to
+  Go's `MaxHeaderBytes`, and panic-recovery middleware.
+- Add a code review checklist item: "Every HTTP server must enforce a
+  non-zero request header size limit." For Dream/Opium servers that lack a
+  built-in cap, this must be implemented as middleware and wired into the
+  production handler chain.
 - Add a review checklist item: "Every HTTP handler chain must include a
   panic-recovery middleware."
 
 ### Weak Point History
 
-First occurrence. The weak point is the `http.Server` configuration in
-`main()`. Any future endpoint added to the mux is automatically protected by
-the recovery middleware because of the chain ordering.
+First occurrence. The weak point is the HTTP server configuration and
+middleware chain in `server/server.ml`. Any future endpoint added to the router
+is automatically protected by the size gate and recovery middleware because
+of the chain ordering.

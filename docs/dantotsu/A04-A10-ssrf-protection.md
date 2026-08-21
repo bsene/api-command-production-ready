@@ -19,11 +19,26 @@ server-side request forgery (SSRF).
 | 🟢 **Project**          | `api-command-kata`                                             |
 | 🟢 **Detection Stage**  | `B — Security audit (OWASP Top 10 review)`                     |
 | 🟢 **Startup**          | `bsene`                                                        |
-| 🟢 **Status**           | `Fixed`                                                        |
+| 🟢 **Status**           | `⚠️ Partial — one item deferred`                               |
 | 🔵 **Weak point**       | `lib/orders_manager.ml + lib/ssrf.ml — validate_base_url + HTTP transport dialer` |
 | 🟢 **Owner**            | `birrame.sene`                                                 |
 | 🟢 **napta_project_id** | `api-command`                                                  |
 | **Standard**            | 🎓 Dantotsu                                                    |
+
+---
+
+## Remediation status (1b)
+
+**A04/A10 — SSRF protection**
+
+Status: ⚠️ Partial — one item deferred
+
+- ✅ `validate_base_url` enforces scheme + IP-literal check at URL-time — `lib/ssrf.ml:20-33`
+- ✅ `check_ssrf_ip` classifies link-local, unspecified, multicast, loopback, private — `lib/ssrf.ml:5-18`
+- ✅ URL parsing via `Uri.of_string` replaces `strings.HasPrefix` — `lib/ssrf.ml:22-23`
+- ✅ Dial-time IP check for hostnames (in `lib/cohttp_backend.ml`) — present
+- ✅ DNS rebinding defense (resolved once, used directly) — present in backend
+- ❌ **Deferred:** "Consider adding a CI grep check that fails if `WithHTTPClient` appears outside `*_test.go` files." This exists as documentation only, not enforcement.
 
 ---
 
@@ -175,14 +190,14 @@ protection. The `server/` server makes no outbound requests.
 ### Prevention Strategy
 
 - The SSRF-safe transport is the default for all `OrdersManager` instances.
-  Only `WithHTTPClient` (documented as test-only) bypasses it.
-- Add a lint/documentation rule: "Never use `WithHTTPClient` in production
-  code; it bypasses SSRF protection."
-- Consider adding a CI grep check that fails if `WithHTTPClient` appears
-  outside `*_test.go` files.
+  The test-only HTTP backend bypass is confined to `lib/test/`.
+- Lint/documentation rule in place: "Never use the test-only HTTP backend in
+  production code; it bypasses SSRF protection."
+- ❌ **Deferred:** CI grep check that fails if the SSRF-bypass backend appears
+  outside test files. Currently documented only, not enforced.
 
 ### Weak Point History
 
 First occurrence. The weak point is the `OrdersManager` client as the sole
 outbound HTTP consumer. Any future outbound HTTP client in this codebase must
-reuse `newSSRFSafeTransport` or `checkSSRFIP`.
+reuse `Cohttp_backend` or `Ssrf.check_ssrf_ip`.
