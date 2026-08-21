@@ -37,7 +37,7 @@ without relying on the local fixture.
 - `server/main.exe` — a real HTTP server emulating the products API, used as the smoke-test target
 - `infra/catalog/products.json` — the **single shared product catalog** (JSON fixture) served by both the local fixture and the production Lambda layer
 - `smoke-tests/*.hurl` — QA smoke scenarios, run with the `hurl` tool against a real server
-- `smoke/client_smoke.ml` — standalone client smoke driving the real client against the fixture
+- `integration/client_smoke.ml` — standalone client integration test driving the real client against the fixture
 - `docs/dantotsu/` — Dantotsu defect-analysis reports for each fixed OWASP issue
 
 ## Security
@@ -157,22 +157,22 @@ Recovered panics are logged at `Error` with `method`, `path`, `remote`, and
 ## Smoke tests
 
 The smoke suite is black-box HTTP: it runs `hurl --test` against a real server
-process, plus a standalone OCaml client smoke that drives the real
+process, plus a standalone OCaml client integration test that drives the real
 `Orders_manager` client (via the SSRF-safe `Cohttp_backend`) against the same
 fixture. By default the Taskfile boots the local `server/main.exe` fixture on
 `127.0.0.1:18080`; set `BASE_URL` to point at a deployed instance instead.
 
 ```sh
-task smoke         # run every Hurl scenario + the client smoke
-task smoke:list    # per-scenario PASS/FAIL summary
-task smoke:count   # how many scenarios
-task smoke:client  # run only the OCaml client smoke (fixture must be running)
+task smoke            # run every Hurl scenario + the client integration test
+task smoke:list       # per-scenario PASS/FAIL summary
+task smoke:count      # how many scenarios
+task integration:client  # run only the OCaml client integration test (fixture must be running)
 ```
 
-The client smoke (`smoke/client_smoke.exe`) exercises the client↔server auth
-contract end-to-end (A01): a manager with the wrong `x-api-key` must fail and
-one with the right key must succeed, closing the gap the Hurl (server-only)
-and Alcotest (mock-only) suites left open.
+The client integration test (`integration/client_smoke.exe`) exercises the
+client↔server auth contract end-to-end (A01): a manager with the wrong
+`x-api-key` must fail and one with the right key must succeed, closing the gap
+the Hurl (server-only) and Alcotest (mock-only) suites left open.
 
 Prerequisites: `go`, `hurl`, `task`.
 

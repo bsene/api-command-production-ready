@@ -7,7 +7,7 @@
 - `lib/test/orders_manager_test.ml` — unit tests using a mocked HTTP backend
 - `server/main.ml` — local HTTP fixture emulating the products API; the smoke-test target
 - `smoke-tests/*.hurl` — black-box QA scenarios run with `hurl`
-- `smoke/client_smoke.ml` — standalone client smoke driving the real client against the fixture
+- `integration/client_smoke.ml` — standalone client integration test driving the real client against the fixture
 - `docs/dantotsu/` — Dantotsu defect-analysis reports; `docs/checklists/` — review and hardening checklists
 - `infra/` — Pulumi (TypeScript) project deploying an OCaml Lambda; `lambda/` holds the OCaml handler (built via `Dockerfile.lambda`)
 
