@@ -120,14 +120,43 @@ let api_key_auth_correct () =
 
 (* --- max header bytes (TestServerConfig_hasMaxHeaderBytes) ----------------- *)
 
+let oversized_headers () =
+  let big = String.make ((1 lsl 20) + 100) 'x' in
+  [ "x-api-key", "secret"; "x-large", big ]
+
+let run_with_headers h target headers =
+  let run = Dream.test h in
+  let req = Dream.request ~method_:`GET ~target ~headers "" in
+  run req
+
+(* Wired through [Server.app] so the production chain is covered too. *)
+let max_header_bytes_wired_in_app () =
+  let catalog = load_catalog () in
+  let h = Server.app ~catalog ~api_key:"secret" ~logger in
+  Alcotest.(check int) "full app oversized headers -> 431" 431
+    (status (run_with_headers h "/products" (oversized_headers ())))
+
 let max_header_bytes_configured () =
   Alcotest.(check int) "MaxHeaderBytes = 1<<20" (1 lsl 20) Server.max_header_bytes
+
+let max_header_bytes_rejects_oversized () =
+  let ok _request = Dream.respond "" in
+  let h = Server.enforce_max_header_bytes @@ ok in
+  Alcotest.(check int) "oversized headers -> 431" 431
+    (status (run_with_headers h "/products" (oversized_headers ())))
+
+let max_header_bytes_allows_normal () =
+  let ok _request = Dream.respond "" in
+  let h = Server.enforce_max_header_bytes @@ ok in
+  Alcotest.(check int) "normal headers -> 200" 200
+    (status (run_with_headers h "/products" [ "x-api-key", "secret" ]))
 
 let () =
   Alcotest.run "server"
     [ ("integration",
        [ Alcotest.test_case "catalog requires auth" `Quick catalog_requires_auth
-       ; Alcotest.test_case "unknown path 404 when authed" `Quick unknown_path_404_when_authed ])
+       ; Alcotest.test_case "unknown path 404 when authed" `Quick unknown_path_404_when_authed
+       ; Alcotest.test_case "max header bytes wired in app" `Quick max_header_bytes_wired_in_app ])
     ; ("recovery",
        [ Alcotest.test_case "recovers panic" `Quick recovery_recovers_panic
        ; Alcotest.test_case "passes through when no panic" `Quick recovery_passes_through ])
@@ -139,4 +168,6 @@ let () =
        ; Alcotest.test_case "wrong key refused" `Quick api_key_auth_wrong
        ; Alcotest.test_case "correct key allowed" `Quick api_key_auth_correct ])
     ; ("hardening",
-       [ Alcotest.test_case "max header bytes configured" `Quick max_header_bytes_configured ]) ]
+       [ Alcotest.test_case "max header bytes configured" `Quick max_header_bytes_configured
+       ; Alcotest.test_case "max header bytes rejects oversized headers" `Quick max_header_bytes_rejects_oversized
+       ; Alcotest.test_case "max header bytes allows normal headers" `Quick max_header_bytes_allows_normal ]) ]

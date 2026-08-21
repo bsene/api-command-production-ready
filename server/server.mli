@@ -1,14 +1,19 @@
 (** Dream HTTP app — OCaml port of the server, middleware chain, and hardening
     in [cmd/products-api/main.go]. Middleware composition is outermost-first
-    ([request_logger] → [recover] → [security_headers] → [api_key_auth] →
-    router), matching Go's [chain]. Middlewares are exposed individually so the
-    white-box tests can exercise them in isolation, as the Go tests do. *)
+    ([request_logger] → [recover] → [enforce_max_header_bytes] →
+    [security_headers] → [api_key_auth] → router), matching Go's [chain].
+    Middlewares are exposed individually so the white-box tests can exercise
+    them in isolation, as the Go tests do. *)
 
 open Apicommand
 
 (** Configured [MaxHeaderBytes] cap (Go's [1 << 20]). Dream exposes no
     per-server header-size limit, so this is the asserted constant (A05). *)
 val max_header_bytes : int
+
+(** [enforce_max_header_bytes] rejects requests whose total header bytes exceed
+    [max_header_bytes] with [431 Request Header Fields Too Large] (A05). *)
+val enforce_max_header_bytes : Dream.middleware
 
 (** [products_handler catalog] serves the catalog as JSON on [GET /products]
     (Content-Type [application/json], positional order preserved). *)

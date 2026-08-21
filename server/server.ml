@@ -1,7 +1,8 @@
 (* Dream HTTP app — port of cmd/products-api/main.go's server, middleware chain,
    and hardening. Middleware order is outermost-first, matching Go's [chain]:
-   request_logger → recover → security_headers → api_key_auth → router.
-   [Dream.handler @@ a @@ b @@ router] composes so [a] runs outermost. *)
+   request_logger → recover → enforce_max_header_bytes → security_headers →
+   api_key_auth → router. [Dream.handler @@ a @@ b @@ router] composes so [a]
+   runs outermost. *)
 
 open Apicommand
 open Lwt
@@ -41,6 +42,31 @@ let security_headers next request =
       "max-age=31536000; includeSubDomains";
   return resp
 
+(* A05: enforce MaxHeaderBytes in-process. Dream has no built-in per-server
+   header-size cap, so this middleware measures the parsed header set plus the
+   HTTP/1.1 request line and rejects with 431 before the handler or downstream
+   middleware processes the headers any further. The count mirrors Go's
+   [http.Server.MaxHeaderBytes]: request line + each [Name: Value\r\n] + the
+   terminal [\r\n]. *)
+let enforce_max_header_bytes next request =
+  let request_line_size =
+    String.length (Dream.method_to_string (Dream.method_ request))
+    + String.length (Dream.target request)
+    + 12
+  in
+  let header_size =
+    List.fold_left
+      (fun acc (name, value) ->
+         acc + String.length name + String.length value + 4)
+      0 (Dream.all_headers request)
+  in
+  if request_line_size + header_size + 2 > max_header_bytes then
+    Dream.respond ~status:`Request_Header_Fields_Too_Large
+      ~headers:[ "Content-Type", "text/plain; charset=utf-8" ]
+      "request header fields too large\n"
+  else
+    next request
+
 (* A05: recover from exceptions in any downstream handler/middleware and return
    a clean 500 instead of crashing. Uses [Lwt.catch] (catches exceptions and
    rejections only, NOT 4xx/5xx responses — unlike [Dream.catch], which would
@@ -76,13 +102,17 @@ let request_logger logger next request =
   return resp
 
 (* The full middleware chain, outermost-first (request_logger → recover →
-   security_headers → api_key_auth → router), matching Go's [chain]. *)
+   enforce_max_header_bytes → security_headers → api_key_auth → router).
+   Recovery sits outside the size gate so an unexpected exception there is still
+   logged and converted to 500. Security headers wrap the 431 produced by the
+   gate, just as they wrap the 401 from auth and the 500 from recovery. *)
 let app ~catalog ~api_key ~logger =
   let router =
     Dream.router [ Dream.get "/products" (products_handler catalog) ]
   in
   request_logger logger
   @@ recover logger
+  @@ enforce_max_header_bytes
   @@ security_headers
   @@ api_key_auth api_key
   @@ router
