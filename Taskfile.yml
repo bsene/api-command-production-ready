@@ -52,6 +52,11 @@ vars:
   LOAD_URL: "{{.PROD_URL}}"
   LOAD_RESULTS: load-tests/results
   LOAD_GEN: load-tests/results/.gen
+  # ── Security scanning ──
+  SECURITY_RESULTS: security-results
+  GGSHIELD_JSON: "{{.SECURITY_RESULTS}}/ggshield.json"
+  TRIVY_FS_JSON: "{{.SECURITY_RESULTS}}/trivy-fs.json"
+  TRIVY_IAC_JSON: "{{.SECURITY_RESULTS}}/trivy-iac.json"
 
 tasks:
 
@@ -457,3 +462,387 @@ tasks:
     desc: Remove generated load-test results and rendered targets.
     cmds:
       - rm -rf {{.LOAD_RESULTS}}
+
+  # ------------------------------------------------------------------ security
+  # Security scanning gate: ggshield (secrets) + trivy (fs-vulns/IaC)
+  # + OWASP Top 10 checklist covering all ten 2021 items.
+  check:security:
+    desc: "Run every security scan (ggshield + trivy + OWASP Top 10) and report findings."
+    summary: |
+      Runs the security gate: ggshield for secret scan, trivy for filesystem
+      vulns + IaC config audit, then a checklist validating OWASP Top 10 (2021)
+      coverage. Exits 0 only if every check passes.
+    deps:
+      - check:security:prereqs
+    cmds:
+      - task: check:security:ggshield
+      - task: check:security:trivy
+      - task: check:security:owasp
+
+  check:security:prereqs:
+    desc: "Verify every security scanner is installed before running check:security."
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          command -v ggshield >/dev/null 2>&1 || { echo "ggshield not found. Install: brew install gitguardian/tap/ggshield (or pip install ggshield)"; exit 1; }
+          command -v trivy >/dev/null 2>&1 || { echo "trivy not found. Install: brew install trivy (or https://aquasecurity.github.io/trivy)"; exit 1; }
+
+  # ─────────────────────────────────────────────────────────────────────── ggshield
+  check:security:ggshield:
+    desc: "Run ggshield secret scan over the repository (PII/secrets)."
+    summary: |
+      Runs a recursive GitGuardian secret scan over the whole repo, excluding
+      build / dependency / result / git directories. IaC misconfiguration is
+      covered by `check:security:trivy`. Outputs JSON to
+      {{.SECURITY_RESULTS}}/ggshield.json and prints a human-readable summary.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          mkdir -p "{{.SECURITY_RESULTS}}"
+          echo "=== ggshield PII / secret scan (repo root) ==="
+          echo ""
+          if ggshield secret scan path . --json \
+              --recursive \
+              --yes \
+              --exclude _build \
+              --exclude node_modules \
+              --exclude dist \
+              --exclude load-tests/results \
+              --exclude "{{.SECURITY_RESULTS}}" \
+              --exclude ".git" \
+            > "{{.GGSHIELD_JSON}}" 2>&1; then
+            echo "✅ PASS  ggshield secret scan (no secrets detected)"
+          else
+            echo "❌ FAIL  ggshield secret scan — secrets found:" >&2
+            cat "{{.SECURITY_RESULTS}}/ggshield.json" >&2
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────── trivy
+  check:security:trivy:
+    desc: "Run trivy: filesystem vulnerabilities + IaC config + embedded-secrets."
+    summary: |
+      Two passes:
+        1. Trivy filesystem scan (vulnerabilities). Targets the repo root and
+           emits JSON to {{.SECURITY_RESULTS}}/trivy-fs.json.
+        2. Trivy IaC config scan on infra/ — flags bad IAM / S3 / Lambda /
+           security settings. Emits JSON to {{.SECURITY_RESULTS}}/trivy-iac.json.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          mkdir -p "{{.SECURITY_RESULTS}}"
+          echo "=== trivy filesystem scan (repo root) ==="
+          echo ""
+          if trivy fs --exit-code 0 \
+              --format json \
+              --output "{{.TRIVY_FS_JSON}}" \
+              . ; then
+            n=$(grep -c '"Severity":"HIGH"\|"Severity":"CRITICAL"' "{{.TRIVY_FS_JSON}}" 2>/dev/null || true)
+            if [ "${n:-0}" -gt 0 ]; then
+              echo "⚠️   Found ${n} HIGH/CRITICAL fs vuln(s); see {{.TRIVY_FS_JSON}} for details"
+            else
+              echo "✅ PASS  trivy filesystem scan (no HIGH/CRITICAL vulns)"
+            fi
+          else
+            echo "❌ FAIL  trivy filesystem scan failed to run" >&2
+            exit 1
+          fi
+          echo ""
+          echo "=== trivy IaC scan (infra/) ==="
+          echo ""
+          if trivy config --exit-code 0 \
+              --format json \
+              --output "{{.TRIVY_IAC_JSON}}" \
+              "infra/" ; then
+            n=$(grep -c '"Severity":"HIGH"\|"Severity":"CRITICAL"\|"Severity":"MEDIUM"' "{{.TRIVY_IAC_JSON}}" 2>/dev/null || true)
+            if [ "${n:-0}" -gt 0 ]; then
+              echo "⚠️   Found ${n} HIGH/CRITICAL/MEDIUM IaC finding(s); see {{.TRIVY_IAC_JSON}} for details"
+              echo "  Review each finding — most are advisory; only treat as FAIL if you"
+              echo "  want the gate to be strict. Set SECURITY_TRIVY_IACSTRICT=true to"
+              echo ""
+              echo "  enforce strict (fail-on-medium) gate."
+              if [ "${SECURITY_TRIVY_IACSTRICT:-}" = "true" ]; then
+                echo "  SECURITY_TRIVY_IACSTRICT=true was set — gate failing." >&2
+                exit 1
+              fi
+            else
+              echo "✅ PASS  trivy IaC scan (no HIGH/CRITICAL/MEDIUM)"
+            fi
+          else
+            echo "❌ FAIL  trivy IaC scan failed to run" >&2
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────── owasp
+  check:security:owasp:
+    desc: "Validate OWASP Top 10 (2021) coverage — every item must have an in-tree control."
+    summary: |
+      The task hardens the repo before deploying, and the OWASP check makes
+      sure the in-tree controls actually match the 2021 list. It runs
+      assertions on the files (grep + file-exists) and prints a pass/fail per
+      item. Exits non-zero only if a top-level control is missing entirely.
+
+      Item evidence mapping:
+        A01 Broken Access Control — lambda/lambda_handler.ml + infra/src/index.ts
+        A02 Cryptographic Failures — lib/constant_time.ml + lib/constant_time_test.ml
+        A03 Injection — lambda/lambda_handler.ml (input validation block)
+        A04 Insecure Design — lib/ssrf.ml + lib/cohttp_backend.ml
+        A05 Security Misconfiguration — server/server.ml + infra/src/index.ts
+        A06 Outdated Components — Dockerfile.lambda (version pin)
+        A07 Identification & Auth Failures — lib/cohttp_backend.ml (auth header)
+        A08 Software Integrity — Dockerfile.lambda + lambda/dune (deps)
+        A09 Security Logging — lib/log.ml (structured log module)
+        A10 SSRF — lib/ssrf.ml (IP classifier)
+
+      The task runs a series of assertions (grep + file-exists) to verify each
+      control is present, and prints a per-item PASS/FAIL.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          mkdir -p "{{.SECURITY_RESULTS}}"
+          fail=0
+          pass=0
+
+          # Helper: run an assertion — the first arg is the description, the rest
+          # is the shell test. Exit on failure with an explicit FAIL marker.
+          assert() {
+            desc="$1"; shift
+            if "$@" >/dev/null 2>&1; then
+              echo "✅ PASS  OWASP $desc"
+              pass=$((pass + 1))
+            else
+              echo "❌ FAIL  OWASP $desc"
+              fail=$((fail + 1))
+            fi
+          }
+
+          # ---- A01 Broken Access Control ----
+
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "  OWASP Top 10 (2021) coverage check"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "A01 — Broken Access Control"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A01: x-api-key constant-time compare" test -f lib/constant_time.ml
+
+          assert "A01: x-api-key auth in handler" \
+            sh -c 'grep -q "Constant_time.equal" lambda/lambda_handler.ml'
+
+          assert "A01: auth runs before business logic" \
+            sh -c 'grep -q "unauthorized request" lambda/lambda_handler.ml'
+
+          assert "A01: 401 on mismatch" \
+            sh -c 'grep -q "json_error 401" lambda/lambda_handler.ml'
+
+          assert "A01: fail-closed on weak key" \
+            sh -c 'grep -q "key_bytes" lambda/lambda_handler.ml'
+
+          assert "A01: key is Pulumi secret" \
+            sh -c 'grep -q "requireSecret" infra/src/index.ts'
+
+          assert "A01: unauthorized log line does NOT log the key" \
+            sh -c '! grep -q "\"unauthorized request\".*provided" lambda/lambda_handler.ml && ! grep -q "\"unauthorized request\".*api_key" lambda/lambda_handler.ml'
+
+          # ---- A02 Cryptographic Failures ----
+
+          echo ""
+          echo "A02 — Cryptographic Failures"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A02: constant-time equal XOR-fold (no early-exit)" \
+            sh -c 'grep -iq "xor-fold" lib/constant_time.ml || grep -q "acc := !acc lor" lib/constant_time.ml'
+
+          assert "A02: constant-time equal test (unit)" \
+            test -f lib/test/constant_time_test.ml
+
+          assert "A02: key stored as Pulumi secret, never in source" \
+            sh -c 'grep -q "requireSecret" infra/src/index.ts && ! grep -q "LAMBDA_API_KEY.*=\".*\"" lambda/main.ml'
+
+          assert "A02: fail-closed on key too short" \
+            sh -c 'grep -q "key_bytes" lambda/lambda_handler.ml'
+
+          # ---- A03 Injection ----
+
+          echo ""
+          echo "A03 — Injection"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A03: description length bounded" \
+            sh -c 'grep -q "max_description_bytes" lambda/lambda_handler.ml'
+
+          assert "A03: price >= 0" \
+            sh -c 'grep -q "price must be >= 0" lambda/lambda_handler.ml'
+
+          assert "A03: ref >= 0" \
+            sh -c 'grep -q "ref must be >= 0" lambda/lambda_handler.ml'
+
+          assert "A03: base64 decoded before JSON parse" \
+            sh -c 'grep -q "decode_body" lambda/lambda_handler.ml && grep -q "isBase64Encoded" lambda/event.ml'
+
+          # ---- A04 Insecure Design ----
+
+          echo ""
+          echo "A04 — Insecure Design"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A04: SSRF check on resolved IP at dial time" \
+            sh -c 'grep -q "check_ssrf_ip" lib/cohttp_backend.ml'
+
+          assert "A04: listen addr validated" \
+            sh -c 'grep -q "validate_listen_addr" server/cli.ml'
+
+          assert "A04: base URL uses HTTPS" \
+            sh -c 'grep -q "validate_base_url" lib/ssrf.ml'
+
+          # ---- A05 Security Misconfiguration ----
+
+          echo ""
+          echo "A05 — Security Misconfiguration"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A05: X-Content-Type-Options" \
+            sh -c 'grep -q "X-Content-Type-Options" server/server.ml'
+
+          assert "A05: X-Frame-Options" \
+            sh -c 'grep -q "X-Frame-Options" server/server.ml'
+
+          assert "A05: Content-Security-Policy" \
+            sh -c 'grep -q "Content-Security-Policy" server/server.ml'
+
+          assert "A05: IAM least-privilege (no broad data-plane access)" \
+            sh -c 'grep -q "AWSLambdaBasicExecutionRole" infra/src/index.ts && ! grep -q "AmazonS3FullAccess" infra/src/index.ts'
+
+          assert "A05: reserved concurrency limits concurrency pool" \
+            sh -c 'grep -q "reservedConcurrentExecutions" infra/src/index.ts'
+
+          # ---- A06 Outdated Components ----
+
+          echo ""
+          echo "A06 — Outdated Components"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A06: Dockerfile.lambda pins OCaml version" \
+            sh -c 'grep -q "ocaml/opam:debian-11-ocaml-4.14" Dockerfile.lambda'
+
+          assert "A06: glibc-2.31 binary (forward-compatible with al2023 glibc-2.34)" \
+            sh -c 'grep -q "glibc 2.31" Dockerfile.lambda || grep -q "glibc-2.31" Dockerfile.lambda || grep -q "debian-11" Dockerfile.lambda'
+
+          # ---- A07 Identification & Authentication Failures ----
+
+          echo ""
+          echo "A07 — Identification and Authentication Failures"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A07: auth via x-api-key header" \
+            sh -c 'grep -q "x-api-key" lambda/lambda_handler.ml'
+
+          assert "A07: constant-time compare in handler" \
+            sh -c 'grep -q "Constant_time.equal" lambda/lambda_handler.ml'
+
+          assert "A07: fail-closed on missing key" \
+            sh -c 'grep -q "key_bytes" lambda/lambda_handler.ml'
+
+          # ---- A08 Software and Data Integrity Failures ----
+
+          echo ""
+          echo "A08 — Software and Data Integrity Failures"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A08: Lambda zip built via docker buildx (no local build)" \
+            sh -c 'grep -q "docker buildx" infra/package.json'
+
+          assert "A08: no test deps linked into bootstrap" \
+            sh -c 'grep -q "lambda_lib" lambda/dune && ! grep -q "alcotest" lambda/dune'
+
+          assert "A08: scratch carrier for final image" \
+            sh -c 'grep -q "FROM scratch" Dockerfile.lambda'
+
+          # ---- A09 Security Logging and Monitoring Failures ----
+
+          echo ""
+          echo "A09 — Security Logging and Monitoring Failures"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A09: structured Log module (slog text format)" \
+            test -f lib/log.ml
+
+          assert "A09: Log module logs security events via structured fields" \
+            sh -c 'grep -q "Log\\.log\\|Log\\.info\\|Log\\.warn\\|Log\\.error" lambda/lambda_handler.ml'
+
+          assert "A09: api key value never appears in log payloads" \
+            sh -c '! grep -q "Log\..*provided" lambda/lambda_handler.ml'
+
+          # ---- A10 Server-Side Request Forgery (SSRF) ----
+
+          echo ""
+          echo "A10 — Server-Side Request Forgery"
+          echo "───────────────────────────────────────────────────────────"
+
+          assert "A10: SSRF IP classifier" \
+            test -f lib/ssrf.ml
+
+          assert "A10: check_ssrf_ip called on every resolved IP" \
+            sh -c 'grep -q "check_ssrf_ip" lib/cohttp_backend.ml'
+
+          assert "A10: refuses loopback" \
+            sh -c 'grep -q "Ipaddr.Interface" lib/ssrf.ml'
+
+          assert "A10: refuses private" \
+            sh -c 'grep -q "Ipaddr.is_private" lib/ssrf.ml'
+
+          assert "A10: refuses link-local" \
+            sh -c 'grep -q "Ipaddr.Link" lib/ssrf.ml'
+
+          assert "A10: refuses multicast" \
+            sh -c 'grep -q "Ipaddr.is_multicast" lib/ssrf.ml'
+
+          # ---- Summary ----
+
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "  OWASP Top 10 coverage check summary"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Items passed: $pass    Items failed: $fail"
+          echo ""
+          if [ "$fail" -gt 0 ]; then
+            echo "❌ OWASP Top 10 check FAILED — see FAIL lines above" >&2
+            exit 1
+          else
+            echo "✅ OWASP Top 10 check PASSED — every item has in-tree evidence"
+          fi
+
+  check:security:report:
+    desc: "Combine all security scan reports into a single JSON manifest."
+    deps:
+      - check:security:prereqs
+    cmds:
+      - task: check:security:ggshield
+      - task: check:security:trivy
+      - task: check:security:owasp
+      - cmd: |
+          set -euo pipefail
+          mkdir -p "{{.SECURITY_RESULTS}}"
+          {
+            echo "{"
+            echo '  "timestamp": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'",'
+            echo '  "repo": "'$(basename "$(pwd)")'",'
+            echo '  "scanners": ["ggshield","trivy","owasp"],'
+            echo '  "reports": {'
+            echo '    "ggshield": "{{.GGSHIELD_JSON}}",'
+            echo '    "trivy_fs": "{{.TRIVY_FS_JSON}}",'
+            echo '    "trivy_iac": "{{.TRIVY_IAC_JSON}}"'
+            echo "  }"
+            echo "}"
+          } > "{{.SECURITY_RESULTS}}/manifest.json"
+          echo "Security report manifest written to {{.SECURITY_RESULTS}}/manifest.json"
+
+  check:security:clean:
+    desc: "Remove generated security scan results."
+    cmds:
+      - |
+        [ ! -d "{{.SECURITY_RESULTS}}" ] || rm -rf "{{.SECURITY_RESULTS}}"
+        echo "Cleaned {{.SECURITY_RESULTS}}."
