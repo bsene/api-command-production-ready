@@ -1,0 +1,3 @@
+
+Error: GitGuardian server is not responding as expected.
+Details: The account has an IP allowlist enabled, and your IP address is not permitted to access this resource.

@@ -1,0 +1,5 @@
+(test
+ (name runtime_test)
+ (libraries lambda_lib apicommand alcotest lwt lwt.unix unix)
+ (preprocess (pps lwt_ppx))
+ (package api-command))
