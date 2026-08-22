@@ -6,6 +6,17 @@
 
 open Apicommand
 
+(* Runtime-API invocation context surfaced to the handler. Built by
+   [Runtime.next_invocation] from the [next]-response headers. [arn] is logged
+   on the failed-auth path so CloudWatch correlates unauthorized attempts with
+   the invoked function; [deadline_ms] / [trace_id] are captured but not yet
+   consumed (reserved for deadline-aware / trace-aware logic). *)
+type context = {
+  invoked_function_arn : string;
+  deadline_ms : int64 option;
+  trace_id : string option;
+}
+
 (* The JSON body accepted by the handler. Every field defaults to its zero
    value, matching Go's [json.Unmarshal] with [omitempty] decode semantics —
    the tests omit fields freely (e.g. [{"ref":1,"stock":5}]). *)
@@ -94,15 +105,16 @@ let decode_body event =
      | Ok _ as ok -> ok
      | Error _ -> Error "invalid request body")
 
-(* [handle ~logger ~api_key ~catalog ~rate_limit event] processes one
+(* [handle ~logger ~api_key ~catalog ~rate_limit ~context event] processes one
    invocation. Every branch returns an [Event.response]; no exceptions (Go
-   returns nil error).
+   returns nil error). [context] carries the Runtime-API arn/deadline/trace;
+   [arn] is logged on the failed-auth path, deadline/trace reserved.
 
    A05: the handler-level fixed-window rate limiter is checked *after* auth,
    and only counts failed-authentication traffic (missing or wrong
    [x-api-key]). Authenticated traffic is exempt. On overflow the caller gets
    [429] + [Retry-After]; otherwise a failed-auth request receives [401]. *)
-let handle ~logger ~api_key ~catalog ~rate_limit event =
+let handle ~logger ~api_key ~catalog ~rate_limit ~context event =
   let now = Unix.gettimeofday () in
   let source_ip_or_anonymous =
     if event.Event.source_ip = "" then "anonymous" else event.Event.source_ip
@@ -155,7 +167,8 @@ let handle ~logger ~api_key ~catalog ~rate_limit event =
       else begin
         Log.info logger "unauthorized request"
           [ "path", S event.Event.raw_path; "method", S event.Event.method_;
-            "source_ip", S source_ip_or_anonymous ];
+            "source_ip", S source_ip_or_anonymous;
+            "arn", S context.invoked_function_arn ];
         Event.json_error 401 "unauthorized"
       end
     end
