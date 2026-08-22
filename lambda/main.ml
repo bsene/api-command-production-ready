@@ -1,5 +1,5 @@
 (* Bootstrap entry point for the OCaml Lambda (custom runtime [provided.al2023]).
-   Mirrors Go [main] in [infra/lambda/main.go]: JSON slog logger, load the
+   JSON slog logger, load the
    catalog from [CATALOG_PATH] (default [/opt/catalog/products.json], non-fatal
    on miss), read [LAMBDA_API_KEY], then enter the Runtime API loop. *)
 

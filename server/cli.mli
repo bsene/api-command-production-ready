@@ -1,6 +1,6 @@
-(** CLI configuration — OCaml port of the flag/env parsing in
-    [cmd/products-api/main.go]. Flags fall back to env vars exactly as Go's
-    [envOr] does: an empty [-api-key] flag reads [PRODUCTS_API_KEY]; an empty
+(** CLI configuration — flag/env parsing for the products-api executable.
+    Flags fall back to env vars exactly as the [envOr] helper does: an empty
+    [-api-key] flag reads [PRODUCTS_API_KEY]; an empty
     [-catalog] flag reads [PRODUCTS_CATALOG], then defaults to the shared
     fixture [infra/catalog/products.json]. *)
 

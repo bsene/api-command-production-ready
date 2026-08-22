@@ -1,4 +1,4 @@
-(* Pure Lambda handler — OCaml port of [handle] in [infra/lambda/main.go].
+(* Pure Lambda handler — the [handle] entry point.
    Authentication (A01), GET /products catalog route, body/base64 handling, and
    field validation all mirror Go's order and exact error strings. The API key
    and catalog are injected (no package-level mutable state), so the handler is

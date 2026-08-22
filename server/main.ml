@@ -1,4 +1,4 @@
-(* products-api executable — OCaml port of [cmd/products-api/main.go]'s main.
+(* products-api executable — entry point and startup orchestration.
    Startup order mirrors Go: parse flags+env → resolve → validate (catalog load
    fail-fast → api-key required → listen address) → bind Dream. The catalog is
    loaded once at startup and held in memory for [GET /products], matching Go's

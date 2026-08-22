@@ -1,5 +1,5 @@
-(** SSRF protection — OCaml port of the IP-classification and base-URL validation
-    in orders_manager.go and the listen-address check in main.go (A04/A10/A01). *)
+(** SSRF protection — IP-classification, base-URL validation, and the
+    listen-address check (A04/A10/A01). *)
 
 (** [check_ssrf_ip ip allow_local_dev] rejects IPs that must never be the target
     of an outbound request: link-local (cloud metadata), unspecified, multicast

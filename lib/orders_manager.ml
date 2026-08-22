@@ -1,4 +1,4 @@
-(* OrdersManager — port of orders_manager.go. *)
+(* OrdersManager — product-fetch client. *)
 
 open Product
 open Lwt

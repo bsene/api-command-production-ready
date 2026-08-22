@@ -1,7 +1,6 @@
-(* Alcotest port of the SSRF + base-URL + listen-addr tests (L1b, T1).
-   Mirrors orders_manager_test.go TestCheckSSRFIP* and TestNewOrdersManager_*
-   (the SSRF/scheme/empty/insecure/https/invalid-scheme cases, which exercise
-   validate_base_url + check_ssrf_ip directly). *)
+(* Alcotest suite for the SSRF + base-URL + listen-addr checks (L1b, T1).
+   Covers the SSRF/scheme/empty/insecure/https/invalid-scheme cases, which
+   exercise validate_base_url + check_ssrf_ip directly. *)
 
 open Apicommand.Ssrf
 

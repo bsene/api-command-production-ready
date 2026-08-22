@@ -1,4 +1,4 @@
-(** Domain types for the api-command kata — OCaml port of [product.go]. *)
+(** Domain types for the api-command kata. *)
 
 (** A sports product returned by the products API. The [price] field is the
     domain (English) name; the wire layer ([Wire]) maps it to the French
@@ -17,7 +17,7 @@ val is_available : product -> bool
 
     Mirrors Go's [type Quantity int]: a named int whose "must be positive"
     invariant is enforced by [create_quantity] but whose transparent
-    representation still allows literal construction (as the Go tests do with
+    representation still allows literal construction (as the white-box tests do with
     [CartItem{Quantity: -3}]). Keeping the type transparent preserves faithful
     white-box test coverage; the smart constructor remains the recommended way
     to build a [quantity] from external input. *)

@@ -1,7 +1,7 @@
 (** Structured logger that writes Go [slog] text-handler-format lines into a
     buffer, so white-box tests can assert on substrings like [level=INFO],
     [products request completed], [status=200], [invalid_count=2].
-    Port of the [log/slog] usage in orders_manager.go and main.go (A09). *)
+    Mirrors the [log/slog] usage in the client and server (A09). *)
 
 type value =
   | S of string

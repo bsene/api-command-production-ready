@@ -1,5 +1,5 @@
-(* Alcotest port of the Go white-box tests in product.go / orders_manager_test.go
-   for the Quantity smart constructor and CartItem.Validate (L1a, T1). *)
+(* Alcotest suite for the Quantity smart constructor and CartItem.Validate
+   (L1a, T1). *)
 
 open Apicommand.Product
 

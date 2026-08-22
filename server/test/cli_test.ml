@@ -1,5 +1,5 @@
-(* L2b, T1: ports the flag/env fallback and the startup-refusal logic of
-   cmd/products-api/main.go. [Cli.resolve] is the pure flag-then-env resolver;
+(* L2b, T1: flag/env fallback and startup-refusal logic.
+   [Cli.resolve] is the pure flag-then-env resolver;
    [Cli.validate] mirrors Go's check order (catalog → api-key → listen addr).
    Env behaviour is driven by injected lookup functions (no process-env
    mutation): OCaml cannot [unset] an env var — [Unix.putenv x ""] sets empty,

@@ -1,6 +1,6 @@
 (** API Gateway v2 (HTTP API) payload-format-2.0 event codec — the request shape
-    a Lambda Function URL delivers to the handler. OCaml port of the
-    [events.APIGatewayV2HTTPRequest] fields used by [infra/lambda/main.go]. *)
+    a Lambda Function URL delivers to the handler. Mirrors the
+    [events.APIGatewayV2HTTPRequest] fields. *)
 
 (** A single Function URL invocation. [headers] keys are stored as-delivered
     (APIGW lowercases them); look them up with [header]. [source_ip] is the

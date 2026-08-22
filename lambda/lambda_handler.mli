@@ -1,4 +1,4 @@
-(** Pure Lambda handler — OCaml port of [handle] in [infra/lambda/main.go].
+(** Pure Lambda handler — the [handle] entry point.
     The API key and catalog are injected so the handler is testable in-process
     without package-level mutable state. *)
 

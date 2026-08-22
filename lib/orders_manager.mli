@@ -1,4 +1,4 @@
-(* OrdersManager — port of orders_manager.go. Fetches products from the
+(* OrdersManager — product-fetch client. Fetches products from the
    products API via an injectable HTTP backend (so tests can substitute a
    fake transport, mirroring Go's [fakeTransport] / [WithHTTPClient]), then
    answers description/availability/search/cart-validation queries.

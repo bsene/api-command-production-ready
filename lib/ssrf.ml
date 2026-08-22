@@ -1,6 +1,5 @@
-(* SSRF protection — port of orders_manager.go checkSSRFIP / validateBaseURL and
-   main.go validateListenAddr / isLoopback. IP classification via Ipaddr; URL
-   parsing via Uri. *)
+(* SSRF protection — IP classification and base-URL/listen-address validation.
+   IP classification via Ipaddr; URL parsing via Uri. *)
 
 let check_ssrf_ip ip allow_local_dev =
   let scope = Ipaddr.scope ip in

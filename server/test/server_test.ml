@@ -1,7 +1,6 @@
-(* L2c, T1: ports the white-box server tests in cmd/products-api/server_test.go
-   and the api-key-auth cases in main_test.go. The real Dream handler is
-   exercised in-process via [Dream.test] (no port binding, which the sandbox
-   disallows), mirroring Go's [httptest.NewRecorder]. *)
+(* L2c, T1: white-box server tests and the api-key-auth cases. The real Dream
+   handler is exercised in-process via [Dream.test] (no port binding, which the
+   sandbox disallows), mirroring [httptest.NewRecorder] semantics. *)
 
 open Server_lib
 

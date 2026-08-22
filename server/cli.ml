@@ -1,4 +1,4 @@
-(* CLI configuration — port of the flag/env parsing in cmd/products-api/main.go.
+(* CLI configuration — flag/env parsing for the products-api executable.
    [resolve] is the pure, testable core (flag-then-env fallback); [parse]
    wraps it in a cmdliner term for the executable. [validate] reproduces Go's
    startup check order: catalog load (fail fast) → api-key required → listen

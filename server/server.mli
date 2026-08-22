@@ -1,9 +1,9 @@
-(** Dream HTTP app — OCaml port of the server, middleware chain, and hardening
-    in [cmd/products-api/main.go]. Middleware composition is outermost-first
+(** Dream HTTP app — server, middleware chain, and hardening.
+    Middleware composition is outermost-first
     ([request_logger] → [recover] → [enforce_max_header_bytes] →
-    [security_headers] → [api_key_auth] → router), matching Go's [chain].
+    [security_headers] → [api_key_auth] → router), matching the [chain] order.
     Middlewares are exposed individually so the white-box tests can exercise
-    them in isolation, as the Go tests do. *)
+    them in isolation. *)
 
 open Apicommand
 

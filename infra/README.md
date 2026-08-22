@@ -43,7 +43,7 @@ The Lambda runs on the **`provided.al2023` custom runtime**: AWS executes a
 binary named `bootstrap` from the deployment package. The handler is the
 OCaml library at the repo root (`lambda/`), cross-compiled to linux/arm64 by
 [`Dockerfile.lambda`](../Dockerfile.lambda). The runtime loop is hand-rolled
-in `lambda/runtime.ml` — there is no `aws-lambda-go`.
+in `lambda/runtime.ml` — no third-party Lambda SDK is used.
 
 ```
 repo root/

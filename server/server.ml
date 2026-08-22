@@ -1,5 +1,5 @@
-(* Dream HTTP app — port of cmd/products-api/main.go's server, middleware chain,
-   and hardening. Middleware order is outermost-first, matching Go's [chain]:
+(* Dream HTTP app — server, middleware chain, and hardening. Middleware order
+   is outermost-first, matching the [chain] order:
    request_logger → recover → enforce_max_header_bytes → security_headers →
    api_key_auth → router. [Dream.handler @@ a @@ b @@ router] composes so [a]
    runs outermost. *)

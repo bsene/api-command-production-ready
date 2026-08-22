@@ -2,8 +2,7 @@ open Apicommand
 
 (** Catalog loading — reads the on-disk products fixture and decodes it via
     [Wire], preserving positional order (load-bearing for the Hurl smoke
-    tests, which assert idx0..idx15). This is the OCaml port of Go's
-    [loadCatalog] in [cmd/products-api/main.go]. *)
+    tests, which assert idx0..idx15). *)
 
 (** [load_catalog ~path] reads [path] and decodes the JSON array of products.
     Returns [Error msg] on read failure ([Sys_error]) or decode failure.
