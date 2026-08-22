@@ -19,7 +19,7 @@ server-side request forgery (SSRF).
 | 🟢 **Project**          | `api-command-kata`                                             |
 | 🟢 **Detection Stage**  | `B — Security audit (OWASP Top 10 review)`                     |
 | 🟢 **Startup**          | `bsene`                                                        |
-| 🟢 **Status**           | `⚠️ Partial — one item deferred`                               |
+| 🟢 **Status**           | `✅ Fixed`                                                    |
 | 🔵 **Weak point**       | `lib/orders_manager.ml + lib/ssrf.ml — validate_base_url + HTTP transport dialer` |
 | 🟢 **Owner**            | `birrame.sene`                                                 |
 | 🟢 **napta_project_id** | `api-command`                                                  |
@@ -31,14 +31,14 @@ server-side request forgery (SSRF).
 
 **A04/A10 — SSRF protection**
 
-Status: ⚠️ Partial — one item deferred
+Status: ✅ Fixed
 
 - ✅ `validate_base_url` enforces scheme + IP-literal check at URL-time — `lib/ssrf.ml:20-33`
 - ✅ `check_ssrf_ip` classifies link-local, unspecified, multicast, loopback, private — `lib/ssrf.ml:5-18`
 - ✅ URL parsing via `Uri.of_string` replaces `strings.HasPrefix` — `lib/ssrf.ml:22-23`
 - ✅ Dial-time IP check for hostnames (in `lib/cohttp_backend.ml`) — present
 - ✅ DNS rebinding defense (resolved once, used directly) — present in backend
-- ❌ **Deferred:** "Consider adding a CI grep check that fails if `WithHTTPClient` appears outside `*_test.go` files." This exists as documentation only, not enforcement.
+- ✅ **Enforced:** the `task smoke:vet` `~http_client:` confinement assertion fails the build if the SSRF-bypass labelled arg appears outside `lib/test/**` / `integration/**` (`integration/**` uses the real `Cohttp_backend`, not a bypass).
 
 ---
 
@@ -193,8 +193,10 @@ protection. The `server/` server makes no outbound requests.
   The test-only HTTP backend bypass is confined to `lib/test/`.
 - Lint/documentation rule in place: "Never use the test-only HTTP backend in
   production code; it bypasses SSRF protection."
-- ❌ **Deferred:** CI grep check that fails if the SSRF-bypass backend appears
-  outside test files. Currently documented only, not enforced.
+- ✅ **Enforced:** `task smoke:vet` runs a grep guard that fails if the
+  SSRF-bypass labelled arg `~http_client:` appears outside `lib/test/**` /
+  `integration/**`. The integration smoke is exempt because it wires the
+  *real* `Cohttp_backend`, not the test stub.
 
 ### Weak Point History
 

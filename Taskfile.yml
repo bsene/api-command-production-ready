@@ -191,6 +191,18 @@ tasks:
   smoke:vet:
     desc: Run the Alcotest suites (server fixture + client) without booting a server.
     cmds:
+      - cmd: |
+          set -euo pipefail
+          # A04-A10 SSRF confinement: the SSRF-bypass labelled arg `~http_client:`
+          # may appear only in tests (lib/test/**) and the integration smoke
+          # (integration/** uses the *real* Cohttp_backend, not a bypass). Any
+          # other production file carrying it is a violation.
+          bad=$(rg -n --glob '!lib/test/**' --glob '!integration/**' '~http_client:' lib/ server/ lambda/ infra/ || true)
+          if [ -n "$bad" ]; then
+            echo "smoke:vet: ~http_client: SSRF bypass found outside tests/integration:" >&2
+            echo "$bad" >&2
+            exit 1
+          fi
       - dune runtest
 
   smoke:count:

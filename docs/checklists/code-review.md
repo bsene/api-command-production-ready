@@ -32,15 +32,18 @@
 
 ## 3. Outbound HTTP clients (`OrdersManager` and any future client)
 
-- [ ] The SSRF-safe transport (`newSSRFSafeTransport`) is the default. Any
-      code that bypasses it with `WithHTTPClient` MUST be confined to
-      `*_test.go` files (a CI grep guard enforces this; locally, reviewers
-      reject `WithHTTPClient` outside tests).
+- [ ] The SSRF-safe transport (`Cohttp_backend`, dial-time `Ssrf.check_ssrf_ip`
+      on every resolved IP) is the default. Any code that bypasses it via the
+      `~http_client:` labelled arg MUST be confined to `lib/test/**` or
+      `integration/**` (the integration smoke uses the *real* `Cohttp_backend`,
+      not a bypass). The `task smoke:vet` `~http_client:` confinement assertion
+      enforces this; locally, reviewers reject `~http_client:` outside those
+      paths.
 - [ ] Any new outbound HTTP client in this codebase reuses
-      `newSSRFSafeTransport` or `checkSSRFIP` — never dials with a plain
-      `http.DefaultTransport`.
+      `Cohttp_backend` or `Ssrf.check_ssrf_ip` — never dials with the OS default
+      resolver/transport.
 - [ ] Authentication credentials are sent on every outbound request that
-      targets an authenticated upstream (`x-api-key` via `WithAPIKey`).
+      targets an authenticated upstream (`x-api-key` via `with_api_key`).
 
 ## 4. Structured logging (`slog`)
 
