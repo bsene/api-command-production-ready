@@ -94,12 +94,30 @@ let decode_body event =
      | Ok _ as ok -> ok
      | Error _ -> Error "invalid request body")
 
-(* [handle ~logger ~api_key ~catalog event] processes one invocation. Every
-   branch returns an [Event.response]; no exceptions (Go returns nil error). *)
-let handle ~logger ~api_key ~catalog event =
-  (* A01: fail-closed on a missing/short configured key — deployment
-     misconfiguration, not a caller error, so 500 to alert the operator. *)
-  if String.length api_key < 32 then begin
+(* [handle ~logger ~api_key ~catalog ~rate_limit event] processes one
+   invocation. Every branch returns an [Event.response]; no exceptions (Go
+   returns nil error). The per-IP rate limit (A05) is checked *before* auth —
+   all-requests policy — so a flood of unauthenticated calls is throttled
+   without reaching the key comparison. *)
+let handle ~logger ~api_key ~catalog ~rate_limit event =
+  (* A05: per-IP fixed-window rate limit. Sits before the weak-key guard and
+     the auth check so every request counts, authenticated or not. An empty
+     [source_ip] (event lacked [requestContext.http.sourceIp]) is treated as a
+     single anonymous bucket — acceptable for a best-effort backstop. *)
+  let ip =
+    if event.Event.source_ip = "" then "unknown" else event.Event.source_ip
+  in
+  let now = Unix.gettimeofday () in
+  let allowed, retry_after = Rate_limit.check rate_limit ~now ~ip in
+  if not allowed then begin
+    Log.warn logger "request throttled"
+      [ "ip", S ip; "retry_after", I retry_after ];
+    Event.json_error 429
+      ~headers:
+        [ "Content-Type", "application/json"; "Retry-After", string_of_int retry_after ]
+      "too many requests"
+  end
+  else if String.length api_key < 32 then begin
     Log.error logger
       "LAMBDA_API_KEY missing or too short — refusing to serve with a weak key"
       [ "key_bytes", I (String.length api_key) ];
@@ -113,7 +131,6 @@ let handle ~logger ~api_key ~catalog event =
       Event.json_error 401 "unauthorized"
     end
     else begin
-      (* GET /products: serve the reference catalog. *)
       if event.Event.method_ = "GET" && strip_slashes event.Event.raw_path = "products" then
         serve_catalog catalog
       else if String.trim event.Event.body = "" then

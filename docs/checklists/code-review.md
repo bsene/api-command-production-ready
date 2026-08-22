@@ -65,4 +65,10 @@
       bound resource consumption — reserved concurrency, a rate limit, or WAF —
       and MUST enforce a minimum API-key strength (≥32 bytes / 256-bit) at
       deploy time, failing closed at runtime if the key is missing or too short.
+- [ ] Any handler serving a public endpoint reuses the per-IP rate limiter
+      (`lambda/rate_limit.ml`) or an equivalent fixed-window cap, checked
+      **before** auth (all-requests policy), returning `429` + `Retry-After` on
+      overflow. The local loopback fixture (`server/`) is exempt — it is not
+      internet-facing and smoke tests burst. Document the per-instance caveat
+      (in-memory, resets on cold start, not shared across parallel instances).
 

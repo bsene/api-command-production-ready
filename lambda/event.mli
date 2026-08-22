@@ -3,13 +3,16 @@
     [events.APIGatewayV2HTTPRequest] fields used by [infra/lambda/main.go]. *)
 
 (** A single Function URL invocation. [headers] keys are stored as-delivered
-    (APIGW lowercases them); look them up with [header]. *)
+    (APIGW lowercases them); look them up with [header]. [source_ip] is the
+    caller IP from [requestContext.http.sourceIp] (used by the per-IP
+    rate limiter; "" when absent). *)
 type event = {
   headers : (string * string) list;
   body : string;
   is_base64_encoded : bool;
   raw_path : string;
   method_ : string;
+  source_ip : string;
 }
 
 (** The HTTP response returned to the Runtime API, mirroring
@@ -27,8 +30,9 @@ val header : event -> string -> string option
     zero value, matching Go's [json.Unmarshal]. *)
 val of_json : string -> (event, string) result
 
-(** [json_error status msg] builds a JSON [{{"error": msg}}] response. *)
-val json_error : int -> string -> response
+(** [json_error ?headers status msg] builds a JSON [{{"error": msg}}] response,
+    attaching [headers] (default: [Content-Type: application/json]). *)
+val json_error : ?headers:(string * string) list -> int -> string -> response
 
 (** [ok ?headers body] builds a 200 response. *)
 val ok : ?headers:(string * string) list -> string -> response

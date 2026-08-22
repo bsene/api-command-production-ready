@@ -12,13 +12,14 @@ type request = {
   price : float;
 }
 
-(** [handle ~logger ~api_key ~catalog event] authenticates via [x-api-key],
-    serves [GET /products] from [catalog], and otherwise echoes availability.
-    Every branch returns an {!Event.response}; error bodies match Go's exact
-    strings. *)
+(** [handle ~logger ~api_key ~catalog ~rate_limit event] checks the per-IP
+    rate limit (A05, before auth), authenticates via [x-api-key], serves
+    [GET /products] from [catalog], and otherwise echoes availability. Every
+    branch returns an {!Event.response}; error bodies match Go's exact strings. *)
 val handle :
   logger:Log.t ->
   api_key:string ->
   catalog:Product.product list ->
+  rate_limit:Rate_limit.t ->
   Event.event ->
   Event.response

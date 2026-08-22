@@ -10,6 +10,7 @@ type event = {
   is_base64_encoded : bool;
   raw_path : string;
   method_ : string;
+  source_ip : string;
 }
 
 type response = {
@@ -51,21 +52,30 @@ let of_json s =
          | _ -> "")
       | _ -> ""
     in
+    let source_ip =
+      match List.assoc_opt "requestContext" assoc with
+      | Some (`Assoc rc) ->
+        (match List.assoc_opt "http" rc with
+         | Some (`Assoc h) -> get_string h "sourceIp"
+         | _ -> "")
+      | _ -> ""
+    in
     Ok
       { headers;
         body = get_string assoc "body";
         is_base64_encoded = get_bool assoc "isBase64Encoded";
         raw_path = get_string assoc "rawPath";
-        method_ }
+        method_;
+        source_ip }
   with Yojson.Json_error e -> Error e
 
 (* [json_error status msg] is the JSON error body [{{"error": msg}}] used for
-   every non-200 path, matching Go's [jsonError]. *)
-let json_error status msg : response =
+   every non-200 path, matching Go's [jsonError]. Pass [headers] to attach
+   extra response headers (e.g. [Retry-After] for a 429). *)
+let json_error ?(headers = [ "Content-Type", "application/json" ]) status msg : response =
   { status_code = status;
-    headers = [ "Content-Type", "application/json" ];
+    headers;
     body = Yojson.Safe.to_string (`Assoc [ "error", `String msg ]) }
 
-(* [ok body] is a 200 with an [application/json] body. *)
 let ok ?(headers = [ "Content-Type", "application/json" ]) body : response =
   { status_code = 200; headers; body }

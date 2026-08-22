@@ -1,7 +1,7 @@
 (library
  (name lambda_lib)
- (modules event lambda_handler runtime)
- (libraries apicommand catalog_lib cohttp-lwt-unix uri yojson base64)
+ (modules event lambda_handler rate_limit runtime)
+ (libraries apicommand catalog_lib cohttp-lwt-unix uri yojson base64 unix)
  (preprocess (pps ppx_deriving_yojson lwt_ppx)))
 
 (executable

@@ -23,13 +23,14 @@ val post : string -> string -> string -> unit Lwt.t
 (** [response_to_json r] encodes an APIGW v2 response for the Runtime API. *)
 val response_to_json : Event.response -> string
 
-(** [serve_one ~api ~api_key ~catalog ~logger] processes exactly one
-    invocation: fetch, handle, POST the response (or an error). Exposed for
-    in-process testing against a stub Runtime API. *)
+(** [serve_one ~api ~api_key ~catalog ~rate_limit ~logger] processes exactly
+    one invocation: fetch, handle, POST the response (or an error). Exposed
+    for in-process testing against a stub Runtime API. *)
 val serve_one :
   api:string ->
   api_key:string ->
   catalog:Product.product list ->
+  rate_limit:Rate_limit.t ->
   logger:Log.t ->
   unit Lwt.t
 
@@ -38,5 +39,6 @@ val run :
   api:string ->
   api_key:string ->
   catalog:Product.product list ->
+  rate_limit:Rate_limit.t ->
   logger:Log.t ->
   unit Lwt.t

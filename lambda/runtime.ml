@@ -38,8 +38,7 @@ let next_invocation api =
   in
   Lwt.return { request_id; event }
 
-(* [post api path body_str] POSTs [body_str] to {api}{path} and discards the
-   response. The Runtime API returns 202 on acceptance. *)
+(* [post] POSTs and discards the response (Runtime API returns 202). *)
 let post api path body_str =
   let uri = Uri.of_string ("http://" ^ api ^ path) in
   let body = Cohttp_lwt.Body.of_string body_str in
@@ -64,11 +63,13 @@ let error_to_json msg =
 (* [serve_one] runs exactly one invocation. The handler is pure and returns a
    response for every branch, so the error path only fires if [handle] itself
    raises (defensive — Go returns nil error). *)
-let serve_one ~api ~api_key ~catalog ~logger =
+let serve_one ~api ~api_key ~catalog ~rate_limit ~logger =
   let%lwt inv = next_invocation api in
   Lwt.catch
     (fun () ->
-      let response = Lambda_handler.handle ~logger ~api_key ~catalog inv.event in
+      let response =
+        Lambda_handler.handle ~logger ~api_key ~catalog ~rate_limit inv.event
+      in
       post api ("/runtime/invocation/" ^ inv.request_id ^ "/response")
         (response_to_json response))
     (fun exn ->
@@ -82,11 +83,11 @@ let serve_one ~api ~api_key ~catalog ~logger =
    backoff rather than letting the exception escape [Lwt_main.run] and killing
    the process. [serve_one] stays unguarded so a single iteration can be
    tested against a stub Runtime API. *)
-let run ~api ~api_key ~catalog ~logger =
+let run ~api ~api_key ~catalog ~rate_limit ~logger =
   let rec loop () =
     let%lwt () =
       Lwt.catch
-        (fun () -> serve_one ~api ~api_key ~catalog ~logger)
+        (fun () -> serve_one ~api ~api_key ~catalog ~rate_limit ~logger)
         (fun exn ->
           let msg = Printexc.to_string exn in
           Log.error logger "runtime loop error — retrying in 1s"

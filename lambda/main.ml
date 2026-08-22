@@ -30,6 +30,7 @@ let () =
       Log.error logger "AWS_LAMBDA_RUNTIME_API not set — exiting" [];
       exit 1
   in
+  let rate_limit = Lambda_lib.Rate_limit.create () in
   Log.info logger "lambda bootstrap starting"
     [ "catalog", S (catalog_path ()); "entries", I (List.length catalog) ];
-  Lwt_main.run (Runtime.run ~api ~api_key ~catalog ~logger)
+  Lwt_main.run (Runtime.run ~api ~api_key ~catalog ~rate_limit ~logger)

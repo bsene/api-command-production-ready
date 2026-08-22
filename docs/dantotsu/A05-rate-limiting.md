@@ -51,7 +51,8 @@ public endpoint with no per-caller throttling. Consequences:
 3. The `aws.lambda.Function` is created without `reservedConcurrentExecutions`,
    so it can scale up to the account's concurrency limit.
 4. The only access control is the handler's constant-time `x-api-key`
-   comparison (`infra/lambda/main.go`), which has no lockout or backoff.
+   comparison (`lambda/lambda_handler.ml`), which originally had no lockout or
+   backoff.
 5. A flood of requests therefore reaches the handler unchecked; a weak key can
    be brute-forced, and cost/concurrency are unbounded.
 
@@ -122,9 +123,15 @@ asked.
   flood cannot exhaust the account's concurrency pool.
 - Validated the API key at deploy time in `infra/src/index.ts`: a key shorter
   than 32 bytes fails `pulumi preview`/`up` with a clear error.
-- Added a defense-in-depth startup guard in `infra/lambda/main.go`: the handler
-  refuses to serve (500) if `LAMBDA_API_KEY` is missing or shorter than 32
-  bytes.
+- Added a defense-in-depth startup guard in `lambda/lambda_handler.ml`: the
+  handler refuses to serve (500) if `LAMBDA_API_KEY` is missing or shorter than
+  32 bytes.
+- **Added a handler-level per-IP fixed-window rate limiter** (`lambda/rate_limit.ml`):
+  120 requests / 60s / IP, enforced **before** the auth check (all-requests
+  policy) so a flood of unauthenticated calls is throttled without reaching
+  the key comparison. Over-limit requests get `429` with a `Retry-After`
+  header. The table is in-memory with a bounded LRU (~1024 IPs). The caller IP
+  is decoded from `requestContext.http.sourceIp` in `lambda/event.ml`.
 - Documented the ≥32-byte key requirement, the `openssl rand -hex 32`
   generation command, and the reserved-concurrency override in
   `infra/README.md`.
@@ -132,21 +139,26 @@ asked.
 ### Result
 
 A weak key can no longer be deployed (blocked at both Pulumi and handler
-startup), and the function's concurrency is bounded so a flood cannot starve
-other functions or drive unbounded cost. CloudFront + WAF rate-based rules
-remain the deferred full-edge option for per-caller throttling.
+startup), the function's concurrency is bounded so a flood cannot starve
+other functions or drive unbounded cost, and a single caller exceeding
+120 req/min is throttled with `429` + `Retry-After`. CloudFront + WAF
+rate-based rules remain the deferred full-edge option for edge-level
+per-caller throttling.
 
 ### Residual risk accepted
 
-The two remaining M1 gaps are accepted for the prototype rather than built:
+The one remaining M1 gap is accepted for the prototype rather than built:
 
 - **No WAF/CloudFront edge throttle** — reserved concurrency (default 5) already
-  bounds cost-DoS and concurrency exhaustion, so no edge layer is added.
-- **No per-IP brute-force lockout/backoff** — the ≥32-byte (256-bit) key makes
-  brute-force computationally infeasible, so a lockout/backoff is unnecessary.
+  bounds cost-DoS and concurrency exhaustion, and the handler-level per-IP
+  limiter now bounds a single caller, so no edge layer is added.
 
-CloudFront + WAF rate-based rules remain the deferred full-edge option if the
-endpoint is ever promoted beyond a prototype.
+The handler-level per-IP lockout is **best-effort**, with a documented caveat:
+the table is per execution environment, so it resets on cold start and is *not*
+shared across parallel Lambda instances. Under horizontal scale an attacker can
+exceed the per-instance cap across instances; it is a backstop, not a hard edge
+limit. CloudFront + WAF rate-based rules remain the deferred full-edge option
+if the endpoint is ever promoted beyond a prototype.
 
 ---
 
