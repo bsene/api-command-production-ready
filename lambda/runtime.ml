@@ -9,9 +9,16 @@
 
 open Apicommand
 
+(* [api_version] is the Runtime-API version path prefix the Lambda Runtime API
+   expects on every path (e.g. [/2018-06-01/runtime/invocation/next]). The
+   version is optional in the spec, but the reference runtime (anmonteiro/
+   aws-lambda-ocaml-runtime) and the AWS docs both send it, so we match. *)
+let api_version = "2018-06-01"
+
 type invocation = {
   request_id : string;
   event : Event.event;
+  context : Lambda_handler.context;
 }
 
 let runtime_api () =
@@ -34,7 +41,7 @@ let snippet ?(max_len = 256) s =
    Without this the bare [failwith] masks the trigger, turning a permanent
    Runtime-API misconfig into an opaque timeout. *)
 let next_invocation ~logger api =
-  let uri = Uri.of_string ("http://" ^ api ^ "/runtime/invocation/next") in
+  let uri = Uri.of_string ("http://" ^ api ^ "/" ^ api_version ^ "/runtime/invocation/next") in
   let%lwt resp, body = Cohttp_lwt_unix.Client.get uri in
   let headers = Cohttp.Response.headers resp in
   let%lwt raw = Cohttp_lwt.Body.to_string body in
@@ -48,18 +55,39 @@ let next_invocation ~logger api =
           "body", S (snippet raw) ];
       failwith "missing Lambda-Runtime-Aws-Request-Id header"
   in
+  (* Best-effort capture of the remaining invocation headers. Only
+     [request_id] stays hard-required (the headerless-404 diagnostic relies on it
+     firing first); the rest default so a real Lambda invocation — which always
+     sends them — surfaces arn/deadline/trace to the handler. *)
+  let invoked_function_arn =
+    match Cohttp.Header.get headers "lambda-runtime-invoked-function-arn" with
+    | Some v -> v
+    | None -> ""
+  in
+  let deadline_ms =
+    match Cohttp.Header.get headers "lambda-runtime-deadline-ms" with
+    | Some s -> (try Some (Int64.of_string s) with _ -> None)
+    | None -> None
+  in
+  let trace_id = Cohttp.Header.get headers "lambda-runtime-trace-id" in
   let event =
     match Event.of_json raw with
     | Ok e -> e
     | Error msg -> failwith ("invalid runtime event: " ^ msg)
   in
-  Lwt.return { request_id; event }
+  let context = { Lambda_handler.invoked_function_arn; deadline_ms; trace_id } in
+  Lwt.return { request_id; event; context }
 
-(* [post] POSTs and discards the response (Runtime API returns 202). *)
-let post api path body_str =
+(* [post] POSTs and discards the response (Runtime API returns 202). [headers]
+   defaults to [] for the response path; the error path passes
+   [application/vnd.aws.lambda.error+json] + the [Lambda-Runtime-Function-Error-Type]
+   header, matching the AWS custom-runtime error protocol. *)
+let post ?(headers = []) api path body_str =
   let uri = Uri.of_string ("http://" ^ api ^ path) in
   let body = Cohttp_lwt.Body.of_string body_str in
-  let%lwt _resp, _body = Cohttp_lwt_unix.Client.post ~body uri in
+  let%lwt _resp, _body =
+    Cohttp_lwt_unix.Client.post ~headers:(Cohttp.Header.of_list headers) ~body uri
+  in
   Cohttp_lwt.Body.drain_body _body
 
 (* [response_to_json r] serializes an APIGW v2 response: the
@@ -74,25 +102,36 @@ let response_to_json (r : Event.response) =
     ]
   |> Yojson.Safe.to_string
 
-let error_to_json msg =
-  `Assoc [ ("errorMessage", `String msg) ] |> Yojson.Safe.to_string
+let error_to_json ?(error_type = "Unhandled") msg =
+  `Assoc [ ("errorMessage", `String msg); ("errorType", `String error_type) ]
+  |> Yojson.Safe.to_string
 
 (* [serve_one] runs exactly one invocation. The handler is pure and returns a
    response for every branch, so the error path only fires if [handle] itself
-   raises (defensive — Go returns nil error). *)
+   raises (defensive — Go returns nil error). The response POST carries
+   [application/json]; the error POST carries the Lambda error content-type and
+   [Lambda-Runtime-Function-Error-Type] header, matching the reference runtime. *)
 let serve_one ~api ~api_key ~catalog ~rate_limit ~logger =
   let%lwt inv = next_invocation ~logger api in
   Lwt.catch
     (fun () ->
       let response =
-        Lambda_handler.handle ~logger ~api_key ~catalog ~rate_limit inv.event
+        Lambda_handler.handle ~logger ~api_key ~catalog ~rate_limit ~context:inv.context inv.event
       in
-      post api ("/runtime/invocation/" ^ inv.request_id ^ "/response")
+      post api
+        ("/" ^ api_version ^ "/runtime/invocation/" ^ inv.request_id ^ "/response")
+        ~headers:[ "Content-Type", "application/json" ]
         (response_to_json response))
     (fun exn ->
       let msg = Printexc.to_string exn in
       Log.error logger "invocation failed" [ "request_id", S inv.request_id; "error", S msg ];
-      post api ("/runtime/invocation/" ^ inv.request_id ^ "/error") (error_to_json msg))
+      post api
+        ("/" ^ api_version ^ "/runtime/invocation/" ^ inv.request_id ^ "/error")
+        ~headers:
+          [ "Content-Type", "application/vnd.aws.lambda.error+json"
+          ; "Lambda-Runtime-Function-Error-Type", "Unhandled"
+          ]
+        (error_to_json msg))
 
 (* [max_consecutive_failures] caps how many iterations in a row may fail before
    the loop gives up. Without it a *permanent* error (a headerless `/next`
@@ -101,15 +140,29 @@ let serve_one ~api ~api_key ~catalog ~rate_limit ~logger =
    cap exits the process so Lambda records a legible error instead. *)
 let max_consecutive_failures = 5
 
+(* [post_init_error] reports a fatal runtime error to the Runtime-API init-error
+   endpoint so Lambda records a legible init error rather than a bare process
+   exit. Best-effort: the cap fires precisely when we may be unable to reach the
+   Runtime API at all, so callers ignore the result (matching the reference
+   runtime's "report then fail" behaviour). *)
+let post_init_error api msg =
+  post api ("/" ^ api_version ^ "/runtime/init/error")
+    ~headers:
+      [ "Content-Type", "application/vnd.aws.lambda.error+json"
+      ; "Lambda-Runtime-Function-Error-Type", "Unhandled"
+      ]
+    (error_to_json msg)
+
 (* [run] is the forever loop. Unlike [serve_one], the whole iteration —
    including [next_invocation]'s fetch — is guarded: a transient Runtime API
    error (connection refused, reset) is logged and retried after a short
    backoff rather than letting the exception escape [Lwt_main.run] and killing
    the process. [serve_one] stays unguarded so a single iteration can be
    tested against a stub Runtime API. Consecutive failures are counted; on
-   reaching [max_consecutive_failures] the bootstrap exits rather than spin
-   until the Lambda timeout. *)
-let run ~api ~api_key ~catalog ~rate_limit ~logger =
+   reaching [max_consecutive_failures] [on_cap] is called (default: [exit 1])
+   so the bootstrap exits rather than spin until the Lambda timeout. Pass
+   [~on_cap] to override the exit behaviour (e.g. raise an exception in tests). *)
+let run ?(on_cap = (fun () -> exit 1)) ~api ~api_key ~catalog ~rate_limit ~logger () =
   (* [loop failures] returns [failures'] — the count to carry into the next
      iteration. A successful iteration resets it to 0; a failed one increments
      and (if under the cap) sleeps then retries with the bumped count. Threading
@@ -130,10 +183,18 @@ let run ~api ~api_key ~catalog ~rate_limit ~logger =
           if failures' >= max_consecutive_failures then begin
             Log.error logger "runtime loop: too many consecutive failures — exiting"
               [ "max", I max_consecutive_failures ];
-            exit 1
-          end;
-          let%lwt () = Lwt_unix.sleep 1.0 in
-          Lwt.return failures')
+            let%lwt () =
+              Lwt.catch
+                (fun () -> post_init_error api "runtime loop: too many consecutive failures")
+                (fun _ -> Lwt.return ())
+            in
+            on_cap ();
+            Lwt.return failures'
+          end
+          else begin
+            let%lwt () = Lwt_unix.sleep 1.0 in
+            Lwt.return failures'
+          end)
     in
     loop failures'
   in
