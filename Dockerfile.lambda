@@ -50,3 +50,6 @@ RUN eval "$(opam env)" \
 
 FROM scratch
 COPY --from=builder /tmp/bootstrap /bootstrap
+# `docker create` (used to extract /bootstrap) refuses images with no command.
+# This is never executed — the container is only copied from, never run.
+CMD ["true"]
