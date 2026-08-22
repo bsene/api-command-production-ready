@@ -94,24 +94,47 @@ let serve_one ~api ~api_key ~catalog ~rate_limit ~logger =
       Log.error logger "invocation failed" [ "request_id", S inv.request_id; "error", S msg ];
       post api ("/runtime/invocation/" ^ inv.request_id ^ "/error") (error_to_json msg))
 
+(* [max_consecutive_failures] caps how many iterations in a row may fail before
+   the loop gives up. Without it a *permanent* error (a headerless `/next`
+   response — see [next_invocation]) is retried like a transient one forever,
+   burning the whole Lambda init/invoke budget as an opaque timeout. Hitting the
+   cap exits the process so Lambda records a legible error instead. *)
+let max_consecutive_failures = 5
+
 (* [run] is the forever loop. Unlike [serve_one], the whole iteration —
    including [next_invocation]'s fetch — is guarded: a transient Runtime API
    error (connection refused, reset) is logged and retried after a short
    backoff rather than letting the exception escape [Lwt_main.run] and killing
    the process. [serve_one] stays unguarded so a single iteration can be
-   tested against a stub Runtime API. *)
+   tested against a stub Runtime API. Consecutive failures are counted; on
+   reaching [max_consecutive_failures] the bootstrap exits rather than spin
+   until the Lambda timeout. *)
 let run ~api ~api_key ~catalog ~rate_limit ~logger =
-  let rec loop () =
-    let%lwt () =
+  (* [loop failures] returns [failures'] — the count to carry into the next
+     iteration. A successful iteration resets it to 0; a failed one increments
+     and (if under the cap) sleeps then retries with the bumped count. Threading
+     the count through [failures'] (not a fixed [loop 0]) is what makes the cap
+     actually trip — otherwise the count resets every iteration and the loop
+     spins forever, which is the bug this cap exists to kill. *)
+  let rec loop failures =
+    let%lwt failures' =
       Lwt.catch
-        (fun () -> serve_one ~api ~api_key ~catalog ~rate_limit ~logger)
+        (fun () ->
+          let%lwt () = serve_one ~api ~api_key ~catalog ~rate_limit ~logger in
+          Lwt.return 0)
         (fun exn ->
           let msg = Printexc.to_string exn in
+          let failures' = failures + 1 in
           Log.error logger "runtime loop error — retrying in 1s"
-            [ "error", S msg ];
+            [ "error", S msg; "consecutive_failures", I failures' ];
+          if failures' >= max_consecutive_failures then begin
+            Log.error logger "runtime loop: too many consecutive failures — exiting"
+              [ "max", I max_consecutive_failures ];
+            exit 1
+          end;
           let%lwt () = Lwt_unix.sleep 1.0 in
-          Lwt.return ())
+          Lwt.return failures')
     in
-    loop ()
+    loop failures'
   in
-  loop ()
+  loop 0
