@@ -126,8 +126,14 @@ const fn = new aws.lambda.Function(
     architectures: ["arm64"],
     code: new pulumi.asset.FileArchive(lambdaZip),
     layers: [catalogLayer.arn],
-    timeout: 15,
-    memorySize: 128,
+    // 512 MB (not 128): Lambda CPU share scales with memory, and the 20.6 MB
+    // dynamically-linked OCaml bootstrap (glibc + libev + libgmp + cohttp/lwt/
+    // conduit) is marginal at the 128 MB / minimum-CPU tier. Max memory used is
+    // ~41 MB, so 512 MB is cold-start headroom, not waste. Pairs with the
+    // runtime-loop diagnostics + retry cap (lambda/runtime.ml) so a permanent
+    // Runtime-API error surfaces as a one-line error, not a 20 s timeout.
+    timeout: 30,
+    memorySize: 512,
     reservedConcurrentExecutions: reservedConcurrency,
     // Inject the API key as a Lambda env var (Pulumi masks it because it came
     // from requireSecret — see the api-key block above for the full rationale).
