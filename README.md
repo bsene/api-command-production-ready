@@ -38,12 +38,13 @@ without relying on the local fixture.
 - `infra/catalog/products.json` — the **single shared product catalog** (JSON fixture) served by both the local fixture and the production Lambda layer
 - `smoke-tests/*.hurl` — QA smoke scenarios, run with the `hurl` tool against a real server
 - `integration/client_smoke.ml` — standalone client integration test driving the real client against the fixture
-- `docs/dantotsu/` — Dantotsu defect-analysis reports for each fixed OWASP issue
+- `docs/dantotsu/` — Dantotsu defect-analysis reports (added per fix, removed once verified)
 
 ## Security
 
 The products API fixture and the `OrdersManager` client include OWASP-aligned
-controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`.
+controls. Each control had a Dantotsu root-cause analysis (reports are removed
+once their fixes are verified; see the *Dantotsu defect analysis* section).
 
 - **A01 – Broken Access Control**
   - The fixture authenticates every request with an `x-api-key` header
@@ -65,12 +66,10 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
   - **SSRF protection**: the base URL host is validated at construction time
     (IP-literal check) and at dial time (DNS resolution + IP range check) to
     prevent requests to cloud metadata endpoints (`169.254.169.254`),
-    loopback, private subnets, and link-local addresses. See
-    [docs/dantotsu/A04-A10-ssrf-protection.md](docs/dantotsu/A04-A10-ssrf-protection.md).
+    loopback, private subnets, and link-local addresses.
   - **Negative quantity validation**: `validate_cart` rejects zero or negative
     `Cart_item.quantity` values (`Cart_item_invalid_quantity` reason), preventing
-    cart-total manipulation. See
-    [docs/dantotsu/A04-negative-quantity-validation.md](docs/dantotsu/A04-negative-quantity-validation.md).
+    cart-total manipulation.
 
 - **A05 – Security Misconfiguration**
   - The server sets `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`,
@@ -81,8 +80,7 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
     `Cache-Control`, `Content-Security-Policy`, HSTS over TLS) are set on
     every response.
   - The deployed Lambda Function URL (infra) caps reserved concurrency and
-    enforces a ≥32-byte API key to resist brute-force and billing-DoS. See
-    [docs/dantotsu/A05-rate-limiting.md](docs/dantotsu/A05-rate-limiting.md).
+    enforces a ≥32-byte API key to resist brute-force and billing-DoS.
 
 - **A09 – Security Logging and Monitoring Failures**
   - The server logs every request (method, path, status, remote, elapsed) via
@@ -175,15 +173,8 @@ Prerequisites: `go`, `hurl`, `task`.
 
 ## Dantotsu defect analysis
 
-Active Dantotsu root-cause analysis reports live under `docs/dantotsu/`. Fully
-implemented reports for A01, A04-lambda-input-validation,
-A05-maxheaderbytes-panic-recovery, and A09 were removed once their
-countermeasures were verified in code and tests; the controls themselves remain
-in place. The remaining reports still document open or partially implemented
-items.
-
-| Report | OWASP Category | Issue |
-|---|---|---|
-| [A04-A10-ssrf-protection.md](docs/dantotsu/A04-A10-ssrf-protection.md) | A04/A10 | Attacker-controllable baseURL targeting internal endpoints |
-| [A04-negative-quantity-validation.md](docs/dantotsu/A04-negative-quantity-validation.md) | A04 | Negative cart quantity reducing the total |
-| [A05-rate-limiting.md](docs/dantotsu/A05-rate-limiting.md) | A05 | No rate limiting / concurrency cap on the public Function URL |
+Every OWASP issue fixed in this kata had a Dantotsu root-cause analysis report
+under `docs/dantotsu/` (following the `_template.md` formalism). Each report was
+removed once its countermeasure was verified in code and tests; the security
+controls themselves remain in place (documented in the OWASP controls above).
+The `_template.md` formalism is retained for any future report.
