@@ -2,8 +2,8 @@
 
 > Dantotsu eradication — prevention strategy for **A05 (Security Misconfiguration)**.
 >
-> Every `http.Server{}` in this codebase MUST satisfy all items below before
-> merge. The checklist is referenced by `docs/dantotsu/A05-maxheaderbytes-panic-recovery.md`.
+> Every HTTP server in this codebase MUST satisfy all items below before
+> merge.
 
 ## `http.Server` configuration
 

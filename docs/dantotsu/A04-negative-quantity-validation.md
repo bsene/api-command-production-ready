@@ -162,8 +162,11 @@ pattern.
   with the type, not scattered across consumer functions.
 - Add a lint/review checklist item: "Any `int` field representing a count or
   quantity must be validated for `> 0` at the point of use."
-- Consider using a `Quantity` type (wrapping `int` with a constructor that
-  rejects non-positive values) so the invalid state is unrepresentable.
+- The `quantity` type is an `int` alias by design. The guard is
+  **validate-at-use** (`validate_cart_item` / the `<= 0` check at the top of
+  `validate_cart`); it does *not* make invalid state unrepresentable at
+  construction. Do not tighten the type — keep the alias and enforce the
+  check at the point of use.
 
 ### Weak Point History
 

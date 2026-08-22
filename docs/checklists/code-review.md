@@ -11,15 +11,17 @@
 ## 1. Numeric fields that represent a count or quantity
 
 - [ ] Any `int` field representing a count, quantity, or amount MUST be
-      validated for `> 0` at the point of use — or, preferably, modeled as the
-      `Quantity` type so the invalid state is unrepresentable.
-- [ ] Externally-sourced quantities MUST go through `NewQuantity(n)`, which
-      rejects `n <= 0`. Literal construction (`Quantity(n)`) is only
-      acceptable for trusted compile-time constants.
-- [ ] No business-logic computation (`Price * Quantity`, stock comparison,
+      validated for `> 0` at the point of use. (`quantity` is an `int`
+      alias by design; the guard is validate-at-use, not a type that makes
+      invalid state unrepresentable.)
+- [ ] Externally-sourced quantities MUST go through `Product.create_quantity`
+      (returns `` `Invalid_quantity of int `` for `n <= 0`) or be checked by
+      `Product.validate_cart_item` before use. Direct `int` construction is
+      only acceptable for trusted compile-time constants.
+- [ ] No business-logic computation (price × quantity, stock comparison,
       total accumulation) may run before the quantity sign has been checked.
-      `CartItem.Validate()` is the canonical guard; `ValidateCart` calls it
-      before any stock or price work.
+      `Product.validate_cart_item` is the canonical guard; `Orders_manager.validate_cart`
+      calls it before any stock or price work.
 
 ## 2. `http.Server{}` instances
 

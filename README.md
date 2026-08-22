@@ -52,7 +52,6 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
     unless `-allow-external` is passed, preventing accidental exposure.
   - The `Orders_manager` client sends `x-api-key` via the `~api_key` option
     when the upstream API requires authentication.
-  - Report: [docs/dantotsu/A01-client-api-key-auth.md](docs/dantotsu/A01-client-api-key-auth.md)
 
 - **A02 – Cryptographic Failures**
   - `Orders_manager.create` rejects plain `http://` base URLs by default; use
@@ -81,7 +80,6 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
   - Security headers (`X-Content-Type-Options`, `X-Frame-Options`,
     `Cache-Control`, `Content-Security-Policy`, HSTS over TLS) are set on
     every response.
-  - Report: [docs/dantotsu/A05-maxheaderbytes-panic-recovery.md](docs/dantotsu/A05-maxheaderbytes-panic-recovery.md)
   - The deployed Lambda Function URL (infra) caps reserved concurrency and
     enforces a ≥32-byte API key to resist brute-force and billing-DoS. See
     [docs/dantotsu/A05-rate-limiting.md](docs/dantotsu/A05-rate-limiting.md).
@@ -91,7 +89,6 @@ controls. Each control has a Dantotsu root-cause analysis under `docs/dantotsu/`
     the `Log` module through the `request_logger` middleware.
   - The `Orders_manager` client logs outbound requests (URL, status, count,
     elapsed), upstream errors, and cart validation failures at appropriate levels.
-  - Report: [docs/dantotsu/A09-structured-logging.md](docs/dantotsu/A09-structured-logging.md)
 
 - **A10 – Server-Side Request Forgery (SSRF)**
   - See A04 SSRF protection above — the same countermeasure addresses A10.
@@ -178,17 +175,15 @@ Prerequisites: `go`, `hurl`, `task`.
 
 ## Dantotsu defect analysis
 
-Each fixed OWASP issue has a Dantotsu root-cause analysis report under
-`docs/dantotsu/`, following the `_template.md` formalism. These reports document
-the problem statement, causal chain, root cause, detection failure, and
-eradication strategy for each defect.
+Active Dantotsu root-cause analysis reports live under `docs/dantotsu/`. Fully
+implemented reports for A01, A04-lambda-input-validation,
+A05-maxheaderbytes-panic-recovery, and A09 were removed once their
+countermeasures were verified in code and tests; the controls themselves remain
+in place. The remaining reports still document open or partially implemented
+items.
 
 | Report | OWASP Category | Issue |
 |---|---|---|
-| [A01-client-api-key-auth.md](docs/dantotsu/A01-client-api-key-auth.md) | A01 | Client did not authenticate to the server |
 | [A04-A10-ssrf-protection.md](docs/dantotsu/A04-A10-ssrf-protection.md) | A04/A10 | Attacker-controllable baseURL targeting internal endpoints |
 | [A04-negative-quantity-validation.md](docs/dantotsu/A04-negative-quantity-validation.md) | A04 | Negative cart quantity reducing the total |
-| [A04-lambda-input-validation.md](docs/dantotsu/A04-lambda-input-validation.md) | A04 | Unbounded/unvalidated Lambda body fields (description, price, ref) |
-| [A05-maxheaderbytes-panic-recovery.md](docs/dantotsu/A05-maxheaderbytes-panic-recovery.md) | A05 | Missing MaxHeaderBytes and panic recovery |
 | [A05-rate-limiting.md](docs/dantotsu/A05-rate-limiting.md) | A05 | No rate limiting / concurrency cap on the public Function URL |
-| [A09-structured-logging.md](docs/dantotsu/A09-structured-logging.md) | A09 | No structured logging of requests, errors, or validation failures |

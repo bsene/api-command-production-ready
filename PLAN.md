@@ -124,23 +124,19 @@ leave. No other Taskfile change needed (smoke already dune-only).
 - `docs/checklists/code-review.md:8`: `orders_manager.go`,
   `cmd/products-api/main.go` → `lib/orders_manager.ml`, `server/main.ml`.
 
-### C5. Dantotsu reports (`docs/dantotsu/`) — path swaps + two code-block rewrites
-One-line weak-point rows and narrative mentions — path swaps only:
-- `A01-client-api-key-auth.md:22,42,44` → `lib/orders_manager.ml`, `server/server.ml`.
-- `A04-A10-ssrf-protection.md:23,173` → `lib/ssrf.ml`, `lib/orders_manager.ml`.
-- `A04-negative-quantity-validation.md:22,121` → `lib/orders_manager.ml:157
-  validate_cart`, `lib/product.ml`.
-- `A04-lambda-input-validation.md:128` → `server/main.ml`, `lib/orders_manager.ml`.
-- `A05-maxheaderbytes-panic-recovery.md:22,164` → `server/server.ml`.
-- `A05-rate-limiting.md:157` → `server/`.
-- `A09-structured-logging.md:22,89` → `lib/orders_manager.ml`, `lib/log.ml`
-  (replace `go.mod go 1.26.1 / log/slog` line with OCaml `Log` module).
+### C5. Dantotsu reports (`docs/dantotsu/`)
 
-Two **full Go code blocks** to rewrite to OCaml (not just path swaps):
-- `A09-structured-logging.md:127-141` (OrdersManager client logging) →
-  `lib/orders_manager.ml` + `lib/log.ml` equivalent.
-- `A09-structured-logging.md:142-150` (products-api server logging) →
-  `server/server.ml` / `server/main.ml` equivalent.
+Fully implemented reports (A01, A04-lambda-input-validation,
+A05-maxheaderbytes-panic-recovery, A09) were removed once their fixes were
+verified in code and tests. The remaining active reports need path/identifier
+updates where they still reference Go artifacts:
+
+- `A04-A10-ssrf-protection.md:23,173` → `lib/ssrf.ml`, `lib/orders_manager.ml`.
+- `A04-negative-quantity-validation.md:22,121` → `lib/orders_manager.ml`
+  `validate_cart`, `lib/product.ml`.
+- `A05-rate-limiting.md:157` → `server/`.
+
+No full code-block rewrites remain for the deleted reports.
 
 ### C6. `SECURITY-REVIEW-LAMBDA.md:77`
 "cd infra/lambda && go test ./... runs no tests; the handler has no in-tree
@@ -174,10 +170,9 @@ tests" → infra/lambda is gone; the OCaml handler has tests (`lambda/test/lambd
 - **Edit:** `infra/package.json`, `infra/src/index.ts`, `infra/README.md`,
   `Taskfile.yml`, `AGENTS.md`, `README.md`, `SECURITY-REVIEW-LAMBDA.md`,
   `docs/checklists/server-hardening.md`, `docs/checklists/code-review.md`,
-  `docs/dantotsu/A01-client-api-key-auth.md`, `A04-A10-ssrf-protection.md`,
-  `A04-negative-quantity-validation.md`, `A04-lambda-input-validation.md`,
-  `A05-maxheaderbytes-panic-recovery.md`, `A05-rate-limiting.md`,
-  `A09-structured-logging.md`, `infra/.gitignore`.
+  `docs/dantotsu/A04-A10-ssrf-protection.md`,
+  `A04-negative-quantity-validation.md`, `A05-rate-limiting.md`,
+  `infra/.gitignore`.
 
 ## Verification
 
