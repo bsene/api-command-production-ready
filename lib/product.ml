@@ -1,5 +1,3 @@
-(* Domain types for the api-command kata — OCaml port of product.go. *)
-
 type product = {
   ref : int;
   description : string;

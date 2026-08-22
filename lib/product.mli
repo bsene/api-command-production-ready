@@ -28,7 +28,6 @@ type quantity = int
     reduce or zero a cart total (A04 insecure design). *)
 val create_quantity : int -> (quantity, [> `Invalid_quantity of int]) result
 
-(** [quantity_to_int q] returns the underlying int. *)
 val quantity_to_int : quantity -> int
 
 (** One cart line: a product reference and a quantity. *)

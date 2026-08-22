@@ -125,17 +125,12 @@ const fn = new aws.lambda.Function(
     handler: "bootstrap", // ignored by the custom runtime, but conventional
     architectures: ["arm64"],
     code: new pulumi.asset.FileArchive(lambdaZip),
-    // Mount the product-catalog reference data layer at /opt. Each execution
-    // environment gets the layer read-only; the handler loads it at startup.
     layers: [catalogLayer.arn],
     timeout: 15,
     memorySize: 128,
-    // Cap concurrent executions so a flood of requests cannot exhaust the
-    // account's concurrency pool (billing/cost DoS + concurrency exhaustion).
     reservedConcurrentExecutions: reservedConcurrency,
-    // Inject the API key as an environment variable. Pulumi marks this as a
-    // secret because lambdaApiKey came from requireSecret, so the value is
-    // encrypted in the Pulumi state and masked in console output.
+    // Inject the API key as a Lambda env var (Pulumi masks it because it came
+    // from requireSecret — see the api-key block above for the full rationale).
     environment: {
       variables: {
         LAMBDA_API_KEY: lambdaApiKey,

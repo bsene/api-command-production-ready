@@ -101,11 +101,8 @@ let request_logger logger next request =
     ; "elapsed_ms", I elapsed_ms ];
   return resp
 
-(* The full middleware chain, outermost-first (request_logger → recover →
-   enforce_max_header_bytes → security_headers → api_key_auth → router).
-   Recovery sits outside the size gate so an unexpected exception there is still
-   logged and converted to 500. Security headers wrap the 431 produced by the
-   gate, just as they wrap the 401 from auth and the 500 from recovery. *)
+(* Middleware chain, outermost-first; recovery sits outside the size gate so
+   its exceptions are still logged and converted to 500. *)
 let app ~catalog ~api_key ~logger =
   let router =
     Dream.router [ Dream.get "/products" (products_handler catalog) ]

@@ -1,8 +1,3 @@
-(* Catalog loading — port of [loadCatalog] in cmd/products-api/main.go.
-   Reads the whole file into a buffer then hands the bytes to [Wire.decode].
-   [Wire.decode_products] preserves array order, so the positional contract
-   the Hurl smoke tests rely on (idx0..idx15) holds end-to-end. *)
-
 open Apicommand
 
 let read_file path =

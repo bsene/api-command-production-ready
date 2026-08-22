@@ -89,7 +89,7 @@ let fetch_products m =
                 "product_count", Log.I (List.length ps) ];
             Lwt.return (Ok ps)
 
-(* --- helpers (ports of sortedDescriptions / filterAvailable / ... ) ------- *)
+(* --- query helpers --- *)
 
 let contains_sub s sub =
   let n = String.length s and m = String.length sub in
