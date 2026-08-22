@@ -24,6 +24,7 @@
 #
 # Quick start:
 #     task            # list available tasks
+#     task verify     # full sign-off gate: Alcotest + local smoke + prod smoke + load
 #     task smoke      # run every smoke scenario, verbose
 #     task smoke:list # run each scenario individually with a PASS/FAIL summary
 #
@@ -65,6 +66,59 @@ tasks:
     desc: List the available QA smoke tasks.
     cmds:
       - task --list
+
+  # ------------------------------------------------------------------ verify
+  verify:
+    desc: Full sign-off gate — Alcotest, local smoke, prod smoke, and load testing.
+    summary: |
+      Runs the complete verification pipeline in order, stopping at the
+      first stage that fails:
+        1. Alcotest suites (dune runtest) + SSRF-confinement check  [task smoke:vet]
+        2. Every local smoke scenario + OCaml client integration test [task smoke]
+        3. Production smoke scenarios against the Lambda Function URL [task smoke:prod]
+        4. Safe load suite (baseline + availability + soak)        [task load]
+
+      Stages 3–4 target the deployed endpoint, so the prerequisites are
+      checked up front (LAMBDA_API_KEY, vegeta, envsubst) and fail fast
+      instead of after the local stages. The local fixture is booted by
+      stage 2 and torn down before stage 3 starts.
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          # ── Prerequisites (stages 3–4) ──
+          if [ -z "${LAMBDA_API_KEY:-}" ]; then
+            echo "LAMBDA_API_KEY is required for verify (stages 3–4: prod smoke + load)." >&2
+            exit 1
+          fi
+          command -v vegeta >/dev/null 2>&1 || { echo "vegeta not found — required by stage 4. Install: go install github.com/tsenart/vegeta/v2@latest (or brew install vegeta)" >&2; exit 1; }
+          command -v envsubst >/dev/null 2>&1 || { echo "envsubst not found — required by stage 4. Install: brew install gettext (or apt install gettext-base)" >&2; exit 1; }
+          echo "═══════════════════════════════════════════════════════════"
+          echo "  verify — full QA sign-off gate"
+          echo "═══════════════════════════════════════════════════════════"
+          # ── Stage 1: Alcotest ──
+          echo ""
+          echo "▶ [1/4] Alcotest suites (dune runtest) + SSRF-confinement check"
+          task smoke:vet
+          echo "✅ [1/4] Alcotest suites passed"
+          # ── Stage 2: local smoke + client integration ──
+          echo ""
+          echo "▶ [2/4] All local smoke scenarios + OCaml client integration test"
+          task smoke
+          echo "✅ [2/4] Local smoke scenarios passed"
+          # ── Stage 3: production smoke ──
+          echo ""
+          echo "▶ [3/4] Production smoke scenarios (Lambda Function URL)"
+          task smoke:prod
+          echo "✅ [3/4] Production smoke scenarios passed"
+          # ── Stage 4: load testing (safe suite) ──
+          echo ""
+          echo "▶ [4/4] Load testing — safe vegeta suite (baseline + availability + soak)"
+          task load
+          echo "✅ [4/4] Load testing passed"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════"
+          echo "  ✅ verify — ALL 4 STAGES PASSED"
+          echo "═══════════════════════════════════════════════════════════"
 
   # ------------------------------------------------------------------ smoke
   smoke:
