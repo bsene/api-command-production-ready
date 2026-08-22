@@ -19,18 +19,35 @@ let runtime_api () =
   | Some api when api <> "" -> api
   | _ -> failwith "AWS_LAMBDA_RUNTIME_API not set"
 
-(* [next_invocation api] GETs the next event. The Runtime API blocks the
-   response until an invocation is available, so this call is long-lived. *)
-let next_invocation api =
+(* [snippet s n] returns the first [n] bytes of [s] with an ellipsis when
+   truncated — keeps the diagnostic log line bounded. *)
+let snippet ?(max_len = 256) s =
+  let len = String.length s in
+  if len <= max_len then s else String.sub s 0 max_len ^ "…"
+
+(* [next_invocation ~logger api] GETs the next event. The Runtime API blocks
+   the response until an invocation is available, so this call is long-lived.
+
+   On a headerless response (a non-2xx from Rapid — wrong base path, trailing
+   slash in [AWS_LAMBDA_RUNTIME_API], or an init-phase error) we log the HTTP
+   status, the headers actually received, and a body snippet *before* failing.
+   Without this the bare [failwith] masks the trigger, turning a permanent
+   Runtime-API misconfig into an opaque timeout. *)
+let next_invocation ~logger api =
   let uri = Uri.of_string ("http://" ^ api ^ "/runtime/invocation/next") in
   let%lwt resp, body = Cohttp_lwt_unix.Client.get uri in
   let headers = Cohttp.Response.headers resp in
+  let%lwt raw = Cohttp_lwt.Body.to_string body in
   let request_id =
     match Cohttp.Header.get headers "lambda-runtime-aws-request-id" with
     | Some v -> v
-    | None -> failwith "missing Lambda-Runtime-Aws-Request-Id header"
+    | None ->
+      Log.error logger "next_invocation: no request-id header"
+        [ "status", I (Cohttp.Code.code_of_status (Cohttp.Response.status resp));
+          "headers", S (Cohttp.Header.to_string headers);
+          "body", S (snippet raw) ];
+      failwith "missing Lambda-Runtime-Aws-Request-Id header"
   in
-  let%lwt raw = Cohttp_lwt.Body.to_string body in
   let event =
     match Event.of_json raw with
     | Ok e -> e
@@ -64,7 +81,7 @@ let error_to_json msg =
    response for every branch, so the error path only fires if [handle] itself
    raises (defensive — Go returns nil error). *)
 let serve_one ~api ~api_key ~catalog ~rate_limit ~logger =
-  let%lwt inv = next_invocation api in
+  let%lwt inv = next_invocation ~logger api in
   Lwt.catch
     (fun () ->
       let response =

@@ -13,9 +13,11 @@ type invocation = {
 (** [runtime_api ()] reads [AWS_LAMBDA_RUNTIME_API], failing if unset. *)
 val runtime_api : unit -> string
 
-(** [next_invocation api] GETs the next event from the Runtime API (blocks until
-    one is available). *)
-val next_invocation : string -> invocation Lwt.t
+(** [next_invocation ~logger api] GETs the next event from the Runtime API
+    (blocks until one is available). On a headerless (non-2xx) response the HTTP
+    status, headers, and a body snippet are logged before failing, so the
+    trigger is visible rather than an opaque [missing header] error. *)
+val next_invocation : logger:Log.t -> string -> invocation Lwt.t
 
 (** [post api path body] POSTs [body] to {api}{path}. *)
 val post : string -> string -> string -> unit Lwt.t
