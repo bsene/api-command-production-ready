@@ -96,28 +96,20 @@ let decode_body event =
 
 (* [handle ~logger ~api_key ~catalog ~rate_limit event] processes one
    invocation. Every branch returns an [Event.response]; no exceptions (Go
-   returns nil error). The per-IP rate limit (A05) is checked *before* auth —
-   all-requests policy — so a flood of unauthenticated calls is throttled
-   without reaching the key comparison. *)
+   returns nil error).
+
+   A05: the handler-level fixed-window rate limiter is checked *after* auth,
+   and only counts failed-authentication traffic (missing or wrong
+   [x-api-key]). Authenticated traffic is exempt. On overflow the caller gets
+   [429] + [Retry-After]; otherwise a failed-auth request receives [401]. *)
 let handle ~logger ~api_key ~catalog ~rate_limit event =
-  (* A05: per-IP fixed-window rate limit. Sits before the weak-key guard and
-     the auth check so every request counts, authenticated or not. An empty
-     [source_ip] (event lacked [requestContext.http.sourceIp]) is treated as a
-     single anonymous bucket — acceptable for a best-effort backstop. *)
-  let ip =
-    if event.Event.source_ip = "" then "unknown" else event.Event.source_ip
-  in
   let now = Unix.gettimeofday () in
-  let allowed, retry_after = Rate_limit.check rate_limit ~now ~ip in
-  if not allowed then begin
-    Log.warn logger "request throttled"
-      [ "ip", S ip; "retry_after", I retry_after ];
-    Event.json_error 429
-      ~headers:
-        [ "Content-Type", "application/json"; "Retry-After", string_of_int retry_after ]
-      "too many requests"
-  end
-  else if String.length api_key < 32 then begin
+  let source_ip_or_anonymous =
+    if event.Event.source_ip = "" then "anonymous" else event.Event.source_ip
+  in
+  (* A01: fail-closed on a weak/missing API key — a deployer misconfig, not an
+     attack, so it does not consume the A05 rate-limit budget. *)
+  if String.length api_key < 32 then begin
     Log.error logger
       "LAMBDA_API_KEY missing or too short — refusing to serve with a weak key"
       [ "key_bytes", I (String.length api_key) ];
@@ -125,12 +117,8 @@ let handle ~logger ~api_key ~catalog ~rate_limit event =
   end
   else begin
     let provided = match Event.header event "x-api-key" with Some v -> v | None -> "" in
-    if not (Constant_time.equal provided api_key) then begin
-      Log.info logger "unauthorized request"
-        [ "path", S event.Event.raw_path; "method", S event.Event.method_ ];
-      Event.json_error 401 "unauthorized"
-    end
-    else begin
+    if Constant_time.equal provided api_key then
+      (* Authenticated: serve without touching the rate limiter. *)
       if event.Event.method_ = "GET" && strip_slashes event.Event.raw_path = "products" then
         serve_catalog catalog
       else if String.trim event.Event.body = "" then
@@ -153,5 +141,22 @@ let handle ~logger ~api_key ~catalog ~rate_limit event =
              in
              Event.ok body
            end)
+    else begin
+      (* A05: count only failed-authentication requests. *)
+      let allowed, retry_after = Rate_limit.check rate_limit ~now in
+      if not allowed then begin
+        Log.warn logger "request throttled"
+          [ "retry_after", I retry_after; "source_ip", S source_ip_or_anonymous ];
+        Event.json_error 429
+          ~headers:
+            [ "Content-Type", "application/json"; "Retry-After", string_of_int retry_after ]
+          "too many requests"
+      end
+      else begin
+        Log.info logger "unauthorized request"
+          [ "path", S event.Event.raw_path; "method", S event.Event.method_;
+            "source_ip", S source_ip_or_anonymous ];
+        Event.json_error 401 "unauthorized"
+      end
     end
   end

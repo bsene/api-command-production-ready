@@ -227,13 +227,32 @@ tasks:
             echo "LAMBDA_API_KEY environment variable is required to run production smoke tests." >&2
             exit 1
           fi
-          hurl --test --max-time 30 --variable base_url="{{.PROD_URL}}" --variable api_key="$LAMBDA_API_KEY" {{.SMOKE_DIR}}/prod/*.hurl
+          # Explicit order: lambda-rate-limited.hurl must run last. The global
+          # unauth bucket is shared across all key-less scenarios; running the
+          # rate-limit scenario first would starve the others.
+          hurl --test --max-time 30 --variable base_url="{{.PROD_URL}}" --variable api_key="$LAMBDA_API_KEY" \
+            {{.SMOKE_DIR}}/prod/lambda-catalog.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-availability-in-stock.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-availability-out-of-stock.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-base64-body.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-malformed-body.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-missing-body.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-negative-price.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-negative-ref.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-oversize-description.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-unauthorized.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-wrong-key.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-zero-price-ref.hurl \
+            {{.SMOKE_DIR}}/prod/production.hurl \
+            {{.SMOKE_DIR}}/prod/lambda-rate-limited.hurl
 
   smoke:prod:list:
     desc: Run each production smoke scenario individually with a PASS/FAIL summary.
     summary: |
       Same contract as smoke:prod, but runs the scenarios one by one so the
       failing scenario is obvious. Exits non-zero if any scenario fails.
+      The rate-limit scenario is run last so the shared global bucket does not
+      starve earlier key-less scenarios.
     cmds:
       - cmd: |
           set -euo pipefail
@@ -243,7 +262,8 @@ tasks:
           fi
           pass=0
           fail=0
-          for f in {{.SMOKE_DIR}}/prod/*.hurl; do
+          run() {
+            f="$1"
             name=$(basename "$f" .hurl)
             echo ""
             echo "────────────────────────────────────────────────────────────"
@@ -256,7 +276,21 @@ tasks:
               echo "❌ FAIL  $name"
               fail=$((fail + 1))
             fi
-          done
+          }
+          run {{.SMOKE_DIR}}/prod/lambda-catalog.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-availability-in-stock.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-availability-out-of-stock.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-base64-body.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-malformed-body.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-missing-body.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-negative-price.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-negative-ref.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-oversize-description.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-unauthorized.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-wrong-key.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-zero-price-ref.hurl
+          run {{.SMOKE_DIR}}/prod/production.hurl
+          run {{.SMOKE_DIR}}/prod/lambda-rate-limited.hurl
           echo ""
           echo "Production summary: $pass passed, $fail failed"
           [ "$fail" -eq 0 ]
@@ -415,29 +449,48 @@ tasks:
           vegeta plot -title="spike" < {{.LOAD_RESULTS}}/spike.bin > {{.LOAD_RESULTS}}/spike.html
 
   load:throttle:
-    desc: Throttle — GET /products at 1000 rps for 3s (EXPECTS 429; validates the DoS guard). Opt-in.
+    desc: Throttle — unauth GET /products at 50 rps for 5s (EXPECTS 429; validates the unauth-only DoS guard). Opt-in.
     summary: |
-      WARNING: this scenario deliberately saturates the Lambda to confirm the
-      reservedConcurrency=5 DoS guard throttles with HTTP 429. A 0% 429 result
-      means the guard is inactive — investigate. Excluded from `task load`.
+      WARNING: this scenario deliberately sends key-less traffic to confirm
+      the app-level unauth-only fixed-window limiter throttles with HTTP 429.
+      A 0% 429 result means the guard is inactive — investigate. Excluded from
+      `task load`.
     deps:
       - load:check
       - load:targets
     cmds:
       - cmd: |
           set -euo pipefail
-          echo "WARNING: throttle scenario — expects a large 429 fraction (DoS guard active)." >&2
-          vegeta attack -targets={{.LOAD_GEN}}/get-products.http -rate=1000 -duration=3s -workers=100 > {{.LOAD_RESULTS}}/throttle.bin
+          echo "WARNING: throttle scenario — expects a large 429 fraction (unauth-only DoS guard active)." >&2
+          vegeta attack -targets={{.LOAD_GEN}}/get-products-unauth.http -rate=50 -duration=5s -workers=5 > {{.LOAD_RESULTS}}/throttle.bin
           vegeta report -type=text < {{.LOAD_RESULTS}}/throttle.bin | tee {{.LOAD_RESULTS}}/throttle.txt
           vegeta plot -title="throttle" < {{.LOAD_RESULTS}}/throttle.bin > {{.LOAD_RESULTS}}/throttle.html
+
+  load:auth:
+    desc: Auth — authenticated GET /products at 4 rps for 30s (expects ~0% app-level 429s; reserved-concurrency throttling out of scope). Opt-in.
+    summary: |
+      Regression sentinel: authenticated traffic must not hit the unauth-only
+      app-level rate limiter. Reserved-concurrency platform throttling, if it
+      occurs, surfaces as platform 429s and is intentionally out of scope.
+    deps:
+      - load:check
+      - load:targets
+    cmds:
+      - cmd: |
+          set -euo pipefail
+          echo "Auth scenario — expects ~0% app-level 429s (reserved-concurrency throttling out of scope)." >&2
+          vegeta attack -targets={{.LOAD_GEN}}/get-products.http -rate=4 -duration=30s -workers=2 > {{.LOAD_RESULTS}}/auth.bin
+          vegeta report -type=text < {{.LOAD_RESULTS}}/auth.bin | tee {{.LOAD_RESULTS}}/auth.txt
+          vegeta plot -title="auth" < {{.LOAD_RESULTS}}/auth.bin > {{.LOAD_RESULTS}}/auth.html
 
   load:list:
     desc: Run every load scenario and print a PASS/FAIL gate (exits non-zero on violation).
     summary: |
-      Runs all five scenarios, then asserts the 429 expectation per scenario:
-      under-cap scenarios (baseline, availability, soak, spike) must have zero
-      429s; the throttle scenario must have at least one 429. Prints ✅/❌ per
-      scenario and exits non-zero if any expectation is violated.
+      Runs all six scenarios, then asserts the 429 expectation per scenario:
+      under-cap / authenticated scenarios (baseline, availability, soak, spike,
+      auth) must have zero app-level 429s; the unauth-only throttle scenario
+      must have at least one 429. Prints ✅/❌ per scenario and exits non-zero
+      if any expectation is violated.
     deps:
       - load:check
       - load:targets
@@ -463,7 +516,8 @@ tasks:
           run availability no -targets={{.LOAD_GEN}}/post-availability.http -rate=1 -duration=10s -workers=1 || fail=1
           run soak no -targets={{.LOAD_GEN}}/soak-mixed.http -rate=2 -duration=120s -workers=2 || fail=1
           run spike no -targets={{.LOAD_GEN}}/get-products.http -rate=20 -duration=5s -workers=5 || fail=1
-          run throttle yes -targets={{.LOAD_GEN}}/get-products.http -rate=1000 -duration=3s -workers=100 || fail=1
+          run auth no -targets={{.LOAD_GEN}}/get-products.http -rate=4 -duration=30s -workers=2 || fail=1
+          run throttle yes -targets={{.LOAD_GEN}}/get-products-unauth.http -rate=50 -duration=5s -workers=5 || fail=1
           [ "$fail" -eq 0 ]
 
   load:url:

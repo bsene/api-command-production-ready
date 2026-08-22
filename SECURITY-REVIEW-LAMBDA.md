@@ -12,7 +12,7 @@
 - Unauthorized log line does NOT log the provided key — no secret leakage to logs. `lambda/lambda_handler.ml:129-131`.
 - API key stored as a Pulumi secret (`requireSecret`), encrypted in state, never in source. `infra/src/index.ts:40`.
 - IAM role is least-privilege: `AWSLambdaBasicExecutionRole` only (CloudWatch Logs), no broad data-plane access. `infra/src/index.ts:82`.
-- Handler-level per-IP rate limiter sits before the auth check, throttling floods before they reach the key comparison. `lambda/lambda_handler.ml:109-119`, `lambda/rate_limit.ml`.
+- Handler-level global rate limiter counts only failed-authentication traffic (missing or wrong `x-api-key`), throttling floods after the key comparison. Authenticated traffic is exempt. `lambda/lambda_handler.ml:102-170`, `lambda/rate_limit.ml`.
 - JSON error responses use generic messages; no stack traces returned to caller.
 
 ## Findings
@@ -26,13 +26,13 @@ Consequences:
 - (c) Lambda concurrency exhaustion starving legitimate traffic.
 
 **Mitigations in place (commit e83c9d8, rate limiter added in the A05 work):**
-- Strong key enforced at deploy time (`infra/src/index.ts:40-43`) and fail-closed at handler startup (`lambda/lambda_handler.ml:120-125`): a key shorter than 32 bytes (256-bit) fails `pulumi preview`/`up`, and the handler refuses to serve.
+- Strong key enforced at deploy time (`infra/src/index.ts:40-43`) and fail-closed at handler startup (`lambda/lambda_handler.ml:113-117`): a key shorter than 32 bytes (256-bit) fails `pulumi preview`/`up`, and the handler refuses to serve.
 - Reserved concurrency capped at 5 by default (`infra/src/index.ts:53,135`), bounding cost-DoS and preventing concurrency exhaustion.
-- Handler-level per-IP fixed-window rate limiter (`lambda/rate_limit.ml`, 120 req/60s/IP), checked before auth; over-limit calls get `429` + `Retry-After` (`lambda/lambda_handler.ml:109-119`). The caller IP is decoded from `requestContext.http.sourceIp` (`lambda/event.ml:37-56`).
+- Handler-level global fixed-window rate limiter (`lambda/rate_limit.ml`, 120 req/60s), checked only on failed authentication (`lambda/lambda_handler.ml:149-166`). Missing or wrong `x-api-key` traffic counts toward the shared bucket; authenticated traffic is exempt. Over-limit calls get `429` + `Retry-After`. The caller IP is decoded from `requestContext.http.sourceIp` and logged as `source_ip` (label only, not a bucket key).
 
 **Accepted residual risk:**
-- No WAF/CloudFront edge throttle. Accepted for the prototype because reserved concurrency caps cost-DoS and the handler-level per-IP limiter now bounds a single caller. CloudFront + WAF rate-based rules remain the deferred full-edge option.
-- The handler-level limiter is best-effort: its table is per execution environment, so it resets on cold start and is *not* shared across parallel Lambda instances (under horizontal scale an attacker can exceed the per-instance cap across instances). It is a backstop, not a hard edge limit.
+- No WAF/CloudFront edge throttle. Accepted for the prototype because reserved concurrency caps cost-DoS and the handler-level global limiter now bounds unauth-only floods. CloudFront + WAF rate-based rules remain the deferred full-edge option.
+- The handler-level limiter is best-effort: its bucket is per execution environment, so it resets on cold start and is *not* shared across parallel Lambda instances (under horizontal scale an attacker can exceed the per-instance cap across instances). It is a backstop, not a hard edge limit.
 
 ### MEDIUM — M2: `lambda:InvokeFunction` granted to `principal: "*"` (over-broad)
 `infra/src/index.ts:201-203` grants plain `lambda:InvokeFunction` to `*` to satisfy the Oct-2025 AWS requirement for unauthenticated Function URL invocations (Pulumi v6 lacks `invokedViaFunctionUrl`). This is broader than `InvokeFunctionUrl` — it permits invocation via any path (SDK, API Gateway, other triggers), not just the URL.
@@ -62,7 +62,7 @@ The unauthorized-request log includes `raw_path` and `method` (`lambda/lambda_ha
 
 | ID | Severity | Area | One-line |
 |----|----------|------|----------|
-| M1 | Medium | infra | Resolved: strong key + reserved concurrency + handler per-IP rate limiter; WAF/CloudFront edge throttle accepted as residual risk |
+| M1 | Medium | infra | Resolved: strong key + reserved concurrency + handler global unauth-only rate limiter; WAF/CloudFront edge throttle accepted as residual risk |
 | M2 | Medium | infra | `InvokeFunction` to `*` is broader than URL-only; handler key check is sole defense |
 | L1 | Low | infra | Key in env var, no rotation path, retrievable by privileged callers |
 | L2 | Low | handler | Resolved by OCaml port: description ≤1 KiB, price/ref ≥ 0 (400 on violation) |
@@ -74,7 +74,7 @@ The unauthorized-request log includes `raw_path` and `method` (`lambda/lambda_ha
 
 No code was modified by this review. To confirm the review reflects current code:
 - The Lambda handler has **no in-tree unit tests** (`lambda/test/` was removed). Black-box validation lives in `smoke-tests/prod/*.hurl` — including `lambda-rate-limited.hurl` (the per-IP lockout) — run via `task smoke:prod`, the post-deploy gate. The DoS guard is additionally exercised by `task load:throttle` (vegeta, expects 429).
-- Re-read `lambda/lambda_handler.ml:102-152` (handler + auth + rate limit), `lambda/rate_limit.ml`, `lambda/event.ml`, and `infra/src/index.ts:40-203` (secret, IAM, Function URL, permissions).
+- Re-read `lambda/lambda_handler.ml:102-170` (handler + auth + rate limit), `lambda/rate_limit.ml`, `lambda/event.ml`, and `infra/src/index.ts:40-203` (secret, IAM, Function URL, permissions).
 
 ## Next steps (if you choose to act later)
 
